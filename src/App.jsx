@@ -114,6 +114,9 @@ export default function App() {
   const [newDiff, setNewDiff] = useState("medium");
   const [newRepeat, setNewRepeat] = useState(null);
   const [newGroup, setNewGroup] = useState("other");
+  const [confirmDelete, setConfirmDelete] = useState(null); // task id armed for deletion
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null); // {title, diff, group, repeat}
   const [suggestions, setSuggestions] = useState([]);
   const [suggLoading, setSuggLoading] = useState(false);
   const [suggNote, setSuggNote] = useState("");
@@ -453,7 +456,9 @@ export default function App() {
         taskTitle: t.title,
         group: groupOf(t.group).id,
         at: Date.now(),
-        data: flavor.reward.generate(t),
+        data: flavor.reward.generate(t, {
+          count: rewards.filter((r) => r.flavorId === flavor.id).length,
+        }),
       };
       setRewards((rs) => [reward, ...rs]);
       setJustEarned(reward);
@@ -475,6 +480,46 @@ export default function App() {
   };
 
   const removeTask = (id) => setTasks((ts) => ts.filter((x) => x.id !== id));
+
+  /* first × tap arms the delete for 3s; second tap confirms */
+  const deleteTimer = useRef(null);
+  const requestDelete = (id) => {
+    if (confirmDelete === id) {
+      clearTimeout(deleteTimer.current);
+      setConfirmDelete(null);
+      removeTask(id);
+      return;
+    }
+    setConfirmDelete(id);
+    clearTimeout(deleteTimer.current);
+    deleteTimer.current = setTimeout(() => setConfirmDelete(null), 3000);
+  };
+
+  const startEdit = (t) => {
+    setEditingId(t.id);
+    setEditDraft({
+      title: t.title,
+      diff: t.diff,
+      group: groupOf(t.group).id,
+      repeat: t.repeat || null,
+    });
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft(null);
+  };
+  const saveEdit = () => {
+    const title = editDraft?.title.trim();
+    if (!title) return;
+    setTasks((ts) =>
+      ts.map((x) =>
+        x.id === editingId
+          ? { ...x, title, diff: editDraft.diff, group: editDraft.group, repeat: editDraft.repeat }
+          : x
+      )
+    );
+    cancelEdit();
+  };
 
   const toggleReminder = async () => {
     if (reminder.enabled) {
@@ -723,38 +768,120 @@ export default function App() {
                     {g.name}
                     <span className="le-board-count">{items.filter((t) => !t.done).length}</span>
                   </div>
-                  {items.map((t) => (
-                    <div
-                      key={t.id}
-                      className={`le-card ${t.done ? "out" : ""}`}
-                      style={{ borderLeftColor: g.color }}
-                    >
-                      <button
-                        className={`le-check ${t.done ? "done" : ""}`}
-                        onClick={() => completeTask(t.id)}
-                        aria-label={`Complete ${t.title}`}
+                  {items.map((t) =>
+                    editingId === t.id ? (
+                      <div
+                        key={t.id}
+                        className="le-add le-edit"
+                        style={{ borderLeftColor: g.color }}
                       >
-                        {t.done ? "✓" : ""}
-                      </button>
-                      <div className="le-card-body">
-                        <div className="le-card-title">{t.title}</div>
-                        <div className="le-card-meta">
-                          {diffOf(t.diff).label} ·{" "}
-                          <span className="le-amber">+{diffOf(t.diff).xp} XP</span>
-                          {t.repeat && <span className="le-repeat"> · ↻ {t.repeat}</span>}
+                        <input
+                          className="le-input"
+                          value={editDraft.title}
+                          maxLength={80}
+                          onChange={(e) =>
+                            setEditDraft((d) => ({ ...d, title: e.target.value }))
+                          }
+                          onKeyDown={(e) => e.key === "Enter" && saveEdit()}
+                          autoFocus
+                        />
+                        <div className="le-diff-row">
+                          {DIFFS.map((d) => (
+                            <button
+                              key={d.id}
+                              className={`le-diff ${editDraft.diff === d.id ? "on" : ""}`}
+                              onClick={() => setEditDraft((x) => ({ ...x, diff: d.id }))}
+                            >
+                              {d.label} <span className="le-diff-xp">+{d.xp}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="le-group-row">
+                          {Object.values(GROUPS).map((gr) => (
+                            <button
+                              key={gr.id}
+                              className={`le-group-chip ${editDraft.group === gr.id ? "on" : ""}`}
+                              style={
+                                editDraft.group === gr.id
+                                  ? { background: gr.color, borderColor: gr.color }
+                                  : undefined
+                              }
+                              onClick={() => setEditDraft((x) => ({ ...x, group: gr.id }))}
+                            >
+                              {gr.glyph} {gr.name}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="le-diff-row">
+                          {REPEATS.map((r) => (
+                            <button
+                              key={r.label}
+                              className={`le-diff ${editDraft.repeat === r.id ? "on" : ""}`}
+                              onClick={() => setEditDraft((x) => ({ ...x, repeat: r.id }))}
+                            >
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="le-key-row">
+                          <button
+                            className="le-btn moss"
+                            onClick={saveEdit}
+                            disabled={!editDraft.title.trim()}
+                          >
+                            Save
+                          </button>
+                          <button className="le-btn" onClick={cancelEdit}>
+                            Cancel
+                          </button>
                         </div>
                       </div>
-                      {!t.done && (
+                    ) : (
+                      <div
+                        key={t.id}
+                        className={`le-card ${t.done ? "out" : ""}`}
+                        style={{ borderLeftColor: g.color }}
+                      >
                         <button
-                          className="le-x"
-                          onClick={() => removeTask(t.id)}
-                          aria-label={`Remove ${t.title}`}
+                          className={`le-check ${t.done ? "done" : ""}`}
+                          onClick={() => completeTask(t.id)}
+                          aria-label={`Complete ${t.title}`}
                         >
-                          ×
+                          {t.done ? "✓" : ""}
                         </button>
-                      )}
-                    </div>
-                  ))}
+                        <div className="le-card-body">
+                          <div className="le-card-title">{t.title}</div>
+                          <div className="le-card-meta">
+                            {diffOf(t.diff).label} ·{" "}
+                            <span className="le-amber">+{diffOf(t.diff).xp} XP</span>
+                            {t.repeat && <span className="le-repeat"> · ↻ {t.repeat}</span>}
+                          </div>
+                        </div>
+                        {!t.done && (
+                          <>
+                            <button
+                              className="le-x edit"
+                              onClick={() => startEdit(t)}
+                              aria-label={`Edit ${t.title}`}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className={`le-x ${confirmDelete === t.id ? "armed" : ""}`}
+                              onClick={() => requestDelete(t.id)}
+                              aria-label={
+                                confirmDelete === t.id
+                                  ? `Confirm removing ${t.title}`
+                                  : `Remove ${t.title}`
+                              }
+                            >
+                              {confirmDelete === t.id ? "Sure?" : "×"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
               ))}
             </section>

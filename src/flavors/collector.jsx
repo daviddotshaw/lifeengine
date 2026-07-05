@@ -50,14 +50,25 @@ const STRENGTHS = [
 const SIZE_SCALE = { Tiny: 0.5, XS: 0.65, S: 0.8, Average: 0.92, L: 1.05, XL: 1.2, Huge: 1.4 };
 const SPIKES = { weakest: 5, weak: 6, average: 7, strong: 8, strongest: 10 };
 
-function generate() {
+/* Lucky rolls: every LUCKY_EVERY-th catch uses boosted rarity odds.
+   At ~5 tasks/day that works out to a shiny roughly every 3 weeks and
+   a shadow shiny roughly every 3 months (vs ~224 years unboosted). */
+const LUCKY_EVERY = 11;
+const ODDS = { shiny: 1 / 4096, shadow: 1 / 100 };
+const LUCKY_ODDS = { shiny: 1 / 10, shadow: 1 / 4 };
+
+/** ctx.count = how many collector rewards exist already. */
+function generate(task, ctx = {}) {
+  const lucky = ((ctx.count || 0) + 1) % LUCKY_EVERY === 0;
+  const odds = lucky ? LUCKY_ODDS : ODDS;
   return {
     size: pick(SIZES),
     weight: pick(WEIGHTS),
     luster: pick(LUSTERS),
     strength: pick(STRENGTHS),
-    shiny: Math.random() < 1 / 4096,
-    shadow: Math.random() < 1 / 100,
+    shiny: Math.random() < odds.shiny,
+    shadow: Math.random() < odds.shadow,
+    lucky,
   };
 }
 
@@ -177,6 +188,7 @@ function Card({ reward }) {
         {d.shadow && "🌑 Shadow "}Forretress!
       </div>
       <div className="le-reward-stats">{statLine(d)}</div>
+      {d.lucky && <div className="le-reward-lucky">⚡ Lucky roll — boosted odds!</div>}
     </div>
   );
 }
@@ -242,12 +254,13 @@ function RewardsView({ rewards }) {
   const shinies = mine.filter((r) => r.data.shiny).length;
   const shadows = mine.filter((r) => r.data.shadow).length;
   const open = mine.find((r) => r.id === openId);
+  const luckyIn = LUCKY_EVERY - (mine.length % LUCKY_EVERY);
   return (
     <>
       <h2 className="le-h2" style={{ marginBottom: 4 }}>Collection</h2>
       <p className="le-sub">
         {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow — tap one for
-        its card
+        its card. ⚡ {luckyIn === 1 ? "Next catch is a lucky roll!" : `Lucky roll in ${luckyIn} catches.`}
       </p>
       {mine.length === 0 && (
         <div className="le-empty">
@@ -262,10 +275,13 @@ function RewardsView({ rewards }) {
             className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}
             onClick={() => setOpenId(r.id)}
           >
-            <ForretressImg d={r.data} px={72} />
+            <div className="le-dex-art">
+              <ForretressImg d={r.data} px={72} />
+            </div>
             <div className="le-dex-stats">
               {r.data.shiny && "🌟"}
-              {r.data.shadow && "🌑"} {statLine(r.data)}
+              {r.data.shadow && "🌑"}
+              {r.data.lucky && "⚡"} {statLine(r.data)}
             </div>
             <div className="le-dex-src">{r.taskTitle}</div>
           </button>
