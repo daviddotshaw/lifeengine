@@ -127,7 +127,8 @@ export default function App() {
   const saveTimer = useRef(null);
   const earnTimer = useRef(null);
 
-  const mentor = MENTORS[mentorId] || MENTORS.dungeon_master;
+  /* mentorId "none" = no mentor: the transmission panel is hidden entirely */
+  const mentor = mentorId === "none" ? null : MENTORS[mentorId] || MENTORS.dungeon_master;
   const flavor = flavorOf(flavorId);
   /* tick keeps date-dependent metrics fresh across midnight */
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -323,6 +324,7 @@ export default function App() {
 
   const refreshQuota = useCallback(
     async (force = false) => {
+      if (mentorId === "none" || !MENTORS[mentorId]) return;
       if (!force && quota && quota.date === todayKey() && quota.mentorId === mentorId)
         return;
       setQuotaLoading(true);
@@ -540,28 +542,30 @@ export default function App() {
               <Metric label="In deck" value={openTasks.length} sub="open tasks" />
             </section>
 
-            <section className="le-quota">
-              <div className="le-quota-top">
-                <div className="le-quota-who">
-                  <span className="le-glyph">{mentor.glyph}</span>
-                  <div>
-                    <div className="le-quota-name">{mentor.name}</div>
-                    <div className="le-quota-sub">Daily transmission</div>
+            {mentor && (
+              <section className="le-quota">
+                <div className="le-quota-top">
+                  <div className="le-quota-who">
+                    <span className="le-glyph">{mentor.glyph}</span>
+                    <div>
+                      <div className="le-quota-name">{mentor.name}</div>
+                      <div className="le-quota-sub">Daily transmission</div>
+                    </div>
                   </div>
+                  <button
+                    className="le-btn-ghost"
+                    onClick={() => refreshQuota(true)}
+                    disabled={quotaLoading}
+                    aria-label="New message"
+                  >
+                    {quotaLoading ? "…" : "↻"}
+                  </button>
                 </div>
-                <button
-                  className="le-btn-ghost"
-                  onClick={() => refreshQuota(true)}
-                  disabled={quotaLoading}
-                  aria-label="New message"
-                >
-                  {quotaLoading ? "…" : "↻"}
-                </button>
-              </div>
-              <p className={`le-quota-text ${quotaLoading ? "dim" : ""}`}>
-                {quotaLoading ? "Consulting the mentor…" : quota?.text || "…"}
-              </p>
-            </section>
+                <p className={`le-quota-text ${quotaLoading ? "dim" : ""}`}>
+                  {quotaLoading ? "Consulting the mentor…" : quota?.text || "…"}
+                </p>
+              </section>
+            )}
 
             <section>
               <div className="le-deck-head">
@@ -838,6 +842,17 @@ export default function App() {
             <div className="le-settings-section">
               <h2 className="le-h2" style={{ marginBottom: 4 }}>Mentor</h2>
               <p className="le-sub">Sets the voice of your daily transmission.</p>
+              <button
+                className={`le-mentor ${mentorId === "none" ? "on" : ""}`}
+                onClick={() => setMentorId("none")}
+              >
+                <span className="le-glyph">🔇</span>
+                <span className="le-mentor-text">
+                  <span className="le-card-title">No mentor</span>
+                  <span className="le-card-meta">Silence. Just you and the deck.</span>
+                </span>
+                {mentorId === "none" && <span className="le-mentor-on">Active</span>}
+              </button>
               {Object.values(MENTORS).map((m) => (
                 <button
                   key={m.id}

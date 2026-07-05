@@ -2,7 +2,9 @@
    Collector flavor: every completed task generates a Forretress
    with weighted random stats. Original procedural SVG art — no
    third-party sprites. Stats are pure collection flavour.
+   Tapping one in the gallery opens a full-screen trading card.
    ------------------------------------------------------------ */
+import { useState } from "react";
 
 /** Weighted pick: table is [[value, weight], ...]. */
 function pick(table) {
@@ -159,15 +161,66 @@ function Card({ reward }) {
   );
 }
 
+/* Full-screen trading-card view of one creature. */
+function FullCard({ reward, onClose }) {
+  const d = reward.data;
+  const frame = d.shiny ? "shiny" : d.shadow ? "shadow" : "";
+  const rarity = d.shiny ? "★ SHINY" : d.shadow ? "☾ SHADOW" : "● COMMON";
+  return (
+    <div className="le-tcard-pop" onClick={onClose}>
+      <div className={`le-tcard ${frame}`} onClick={(e) => e.stopPropagation()}>
+        <div className="le-tcard-head">
+          <span className="le-tcard-name">
+            {d.shiny && "🌟 "}
+            {d.shadow && "🌑 "}Forretress
+          </span>
+          <span className="le-tcard-hp le-mono">WT {d.weight}/5</span>
+        </div>
+        <div className="le-tcard-art">
+          <ForretressArt d={d} px={175} />
+        </div>
+        <div className="le-tcard-type">
+          {d.size} armour creature · {d.luster} shell
+        </div>
+        <div className="le-tcard-rows">
+          <div className="le-tcard-row"><span>Size</span><b>{d.size}</b></div>
+          <div className="le-tcard-row"><span>Weight</span><b>{d.weight} / 5</b></div>
+          <div className="le-tcard-row"><span>Luster</span><b>{d.luster}</b></div>
+          <div className="le-tcard-row"><span>Strength</span><b>{d.strength}</b></div>
+        </div>
+        <div className="le-tcard-flavor">
+          “Caught while: {reward.taskTitle}”
+        </div>
+        <div className="le-tcard-foot">
+          <span>
+            {new Date(reward.at).toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </span>
+          <span>{rarity}</span>
+        </div>
+        <button className="le-tcard-close" onClick={onClose} aria-label="Close card">
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RewardsView({ rewards }) {
+  const [openId, setOpenId] = useState(null);
   const mine = rewards.filter((r) => r.flavorId === "collector");
   const shinies = mine.filter((r) => r.data.shiny).length;
   const shadows = mine.filter((r) => r.data.shadow).length;
+  const open = mine.find((r) => r.id === openId);
   return (
     <>
       <h2 className="le-h2" style={{ marginBottom: 4 }}>Collection</h2>
       <p className="le-sub">
-        {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow
+        {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow — tap one for
+        its card
       </p>
       {mine.length === 0 && (
         <div className="le-empty">
@@ -177,16 +230,21 @@ function RewardsView({ rewards }) {
       )}
       <div className="le-dex">
         {mine.map((r) => (
-          <div key={r.id} className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}>
+          <button
+            key={r.id}
+            className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}
+            onClick={() => setOpenId(r.id)}
+          >
             <ForretressArt d={r.data} px={72} />
             <div className="le-dex-stats">
               {r.data.shiny && "🌟"}
               {r.data.shadow && "🌑"} {statLine(r.data)}
             </div>
             <div className="le-dex-src">{r.taskTitle}</div>
-          </div>
+          </button>
         ))}
       </div>
+      {open && <FullCard reward={open} onClose={() => setOpenId(null)} />}
     </>
   );
 }

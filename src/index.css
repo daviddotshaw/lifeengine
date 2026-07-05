@@ -258,7 +258,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 .le-dex-cell {
   background: var(--le-card); border: 1px solid var(--le-line); border-radius: 13px;
   padding: 8px 6px; text-align: center;
+  font: inherit; color: inherit; cursor: pointer; display: block; width: 100%;
 }
+.le-dex-cell:hover { border-color: var(--le-accent); }
 .le-dex-cell.shiny { border-color: var(--le-amber); background: var(--le-amber-bg); }
 .le-dex-stats { font-size: 9.5px; color: var(--le-muted); line-height: 1.35; }
 .le-dex-src {
@@ -279,6 +281,62 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 .le-dots { display: flex; flex-wrap: wrap; gap: 5px; }
 .le-dot { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
 .le-dots-none { font-size: 11.5px; color: var(--le-muted); }
+
+/* ---- collector full-screen trading card ---- */
+.le-tcard-pop {
+  position: fixed; inset: 0; z-index: 9998;
+  display: grid; place-items: center; padding: 18px;
+  background: rgba(18, 14, 26, .78);
+  animation: le-fade-in .18s ease;
+}
+.le-tcard {
+  position: relative; width: min(340px, 92vw);
+  border-radius: 18px; padding: 12px;
+  background: linear-gradient(135deg, #EBCE62, #C9A227 55%, #EBCE62);
+  color: #2B3440;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+  animation: le-pop .45s cubic-bezier(.2, 1.6, .4, 1);
+}
+.le-tcard.shiny {
+  background: linear-gradient(120deg, #f6d365, #fda085 25%, #a1c4fd 55%, #c2e9fb 75%, #f6d365);
+}
+.le-tcard.shadow {
+  background: linear-gradient(135deg, #3A2C4E, #151020 60%, #3A2C4E);
+  color: #E8E2F2;
+}
+.le-tcard-head { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 6px 8px; }
+.le-tcard-name { font-size: 18px; font-weight: 700; }
+.le-tcard-hp { font-size: 13px; font-weight: 600; }
+.le-tcard-art {
+  display: grid; place-items: center; padding: 16px 0;
+  background: radial-gradient(circle at 50% 35%, #ffffff, #cfd8e6);
+  border: 3px solid rgba(255, 255, 255, .65); border-radius: 10px;
+}
+.le-tcard.shadow .le-tcard-art {
+  background: radial-gradient(circle at 50% 35%, #4A3A66, #1B1428);
+  border-color: rgba(255, 255, 255, .18);
+}
+.le-tcard-type {
+  text-align: center; font-size: 11.5px; font-weight: 600;
+  margin: 9px 0; opacity: .85; text-transform: capitalize;
+}
+.le-tcard-rows { background: rgba(255, 255, 255, .55); border-radius: 10px; padding: 3px 12px; }
+.le-tcard.shadow .le-tcard-rows { background: rgba(255, 255, 255, .08); }
+.le-tcard-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 7px 2px; font-size: 13.5px;
+  border-bottom: 1px solid rgba(0, 0, 0, .09); text-transform: capitalize;
+}
+.le-tcard.shadow .le-tcard-row { border-bottom-color: rgba(255, 255, 255, .1); }
+.le-tcard-row:last-child { border-bottom: none; }
+.le-tcard-flavor { font-size: 11.5px; font-style: italic; opacity: .8; margin: 9px 8px 3px; text-align: center; }
+.le-tcard-foot { display: flex; justify-content: space-between; font-size: 10px; font-weight: 600; opacity: .75; padding: 5px 6px 1px; letter-spacing: .05em; }
+.le-tcard-close {
+  position: absolute; top: -12px; right: -12px; width: 34px; height: 34px;
+  border-radius: 999px; border: none; cursor: pointer;
+  background: #2B3440; color: #fff; font-size: 19px; line-height: 1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .4);
+}
 
 /* ---- settings sections ---- */
 .le-settings-section { margin-bottom: 24px; }

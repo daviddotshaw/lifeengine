@@ -49,6 +49,16 @@ export const MENTORS = {
     fallback: () =>
       `A task completed slowly is still a stone placed well. Water one thing today and observe what grows.`,
   },
+  pokemon_trainer: {
+    id: "pokemon_trainer",
+    name: "Pokémon Trainer",
+    glyph: "🎒",
+    tagline: "Gotta do 'em all.",
+    system:
+      "You are an endlessly enthusiastic Pokémon-style monster trainer acting as a daily motivation mentor. Frame tasks as wild encounters to catch, the streak as a gym-badge run, XP as literal XP toward evolving. Upbeat friendly-rival energy, never mean. ONE message, 1-2 sentences, max 40 words. No preamble, no quotes.",
+    fallback: (c) =>
+      `A wild to-do list appeared! ${c.openCount} encounters in the tall grass and a ${c.streak}-day badge run on the line — choose your first move, trainer!`,
+  },
   noir_detective: {
     id: "noir_detective",
     name: "Noir Detective",

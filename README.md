@@ -44,7 +44,7 @@ The workflow automatically sets the Vite base path to `/<repo>/`, so no code cha
 A flavor re-skins the app (CSS palette) and defines its reward system. Users pick one in **Settings → Style**; the choice is per device, like everything else. Built in:
 
 - **Classic** — the original look, no reward layer (confetti and haptics still fire).
-- **Collector** — every completed task generates a *Forretress* with weighted random stats (size, weight, luster, strength — bell-curved toward average), a 1/4096 shiny chance and a 1/100 shadow chance. Browse them in the **Collection** tab. The art is original procedural SVG.
+- **Collector** — every completed task generates a *Forretress* with weighted random stats (size, weight, luster, strength — bell-curved toward average), a 1/4096 shiny chance and a 1/100 shadow chance. Browse them in the **Collection** tab — tap one for a full-screen trading-card view (holo frame for shinies, dark frame for shadows). The art is original procedural SVG.
 - **Sunshine** — pretty colours, a gold star per completion, and colour-coded dot boards (one dot per completion, coloured by task group) in the **Stars** tab.
 
 Adding a flavor mirrors adding a mentor: create one module in `src/flavors/` exporting `{ id, name, glyph, tagline, palette, confettiColors, reward, RewardsView }` and register it in `src/flavors/index.js`. Core components read only that interface.
@@ -89,7 +89,7 @@ To enable live AI-generated quotes, open **Settings** and paste an Anthropic API
 
 ## Adding a mentor persona
 
-Everything lives in `src/mentors.js`. Add one object to the `MENTORS` map:
+Mentors are chosen in **Settings**, which also offers a **No mentor** option that hides the daily transmission entirely. Everything lives in `src/mentors.js`. Add one object to the `MENTORS` map:
 
 ```js
 noir_detective: {
