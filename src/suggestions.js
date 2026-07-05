@@ -7,24 +7,24 @@
    ------------------------------------------------------------ */
 
 export const OFFLINE_SUGGESTIONS = [
-  { title: "10-minute tidy of one room", diff: "easy" },
-  { title: "Drink a glass of water", diff: "easy" },
-  { title: "5-minute stretch break", diff: "easy" },
-  { title: "Reply to one lingering message", diff: "easy" },
-  { title: "Take out the bins", diff: "easy" },
-  { title: "20-minute walk outside", diff: "medium" },
-  { title: "Cook a proper meal (no takeaway)", diff: "medium" },
-  { title: "Clear your email inbox to zero", diff: "medium" },
-  { title: "Read 20 pages of a book", diff: "medium" },
-  { title: "Do one load of laundry start to finish", diff: "medium" },
-  { title: "Back up your important files", diff: "medium" },
-  { title: "30-minute workout", diff: "hard" },
-  { title: "Deep-clean the kitchen", diff: "hard" },
-  { title: "One hour of focused work, no phone", diff: "hard" },
-  { title: "Plan your week in advance", diff: "hard" },
-  { title: "Declutter one full wardrobe or drawer set", diff: "epic" },
-  { title: "Finish that thing you've been putting off", diff: "epic" },
-  { title: "Digital declutter: photos, downloads, desktop", diff: "epic" },
+  { title: "10-minute tidy of one room", diff: "easy", group: "chores" },
+  { title: "Drink a glass of water", diff: "easy", group: "health" },
+  { title: "5-minute stretch break", diff: "easy", group: "health" },
+  { title: "Reply to one lingering message", diff: "easy", group: "social" },
+  { title: "Take out the bins", diff: "easy", group: "chores" },
+  { title: "20-minute walk outside", diff: "medium", group: "health" },
+  { title: "Cook a proper meal (no takeaway)", diff: "medium", group: "health" },
+  { title: "Clear your email inbox to zero", diff: "medium", group: "other" },
+  { title: "Read 20 pages of a book", diff: "medium", group: "learning" },
+  { title: "Do one load of laundry start to finish", diff: "medium", group: "chores" },
+  { title: "Back up your important files", diff: "medium", group: "other" },
+  { title: "30-minute workout", diff: "hard", group: "health" },
+  { title: "Deep-clean the kitchen", diff: "hard", group: "chores" },
+  { title: "One hour of focused work, no phone", diff: "hard", group: "learning" },
+  { title: "Plan your week in advance", diff: "hard", group: "mindfulness" },
+  { title: "Declutter one full wardrobe or drawer set", diff: "epic", group: "chores" },
+  { title: "Finish that thing you've been putting off", diff: "epic", group: "other" },
+  { title: "Digital declutter: photos, downloads, desktop", diff: "epic", group: "other" },
 ];
 
 /** Random sample of n offline suggestions, excluding titles already in the deck. */
@@ -48,7 +48,8 @@ export async function fetchAiSuggestions(apiKey, ctx) {
     `They have a ${ctx.streak}-day streak and ${ctx.xp} XP. ` +
     `Do not duplicate their open tasks. Mix difficulties. ` +
     `Respond ONLY with a JSON array, no markdown fences, no other text, in the form: ` +
-    `[{"title":"...","diff":"easy|medium|hard|epic"}]. Titles max 8 words.`;
+    `[{"title":"...","diff":"easy|medium|hard|epic","group":"health|mindfulness|chores|learning|social|other"}]. ` +
+    `Titles max 8 words.`;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -77,11 +78,13 @@ export async function fetchAiSuggestions(apiKey, ctx) {
   const parsed = JSON.parse(text);
   if (!Array.isArray(parsed)) throw new Error("bad shape");
   const valid = new Set(["easy", "medium", "hard", "epic"]);
+  const validGroups = new Set(["health", "mindfulness", "chores", "learning", "social", "other"]);
   return parsed
     .filter((s) => s && typeof s.title === "string" && s.title.trim())
     .map((s) => ({
       title: s.title.trim().slice(0, 80),
       diff: valid.has(s.diff) ? s.diff : "medium",
+      group: validGroups.has(s.group) ? s.group : "other",
     }))
     .slice(0, 6);
 }

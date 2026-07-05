@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { MENTORS, DIFFS, diffOf } from "./mentors.js";
+import { GROUPS, groupOf, DEFAULT_TASKS } from "./groups.js";
+import { FLAVORS, flavorOf } from "./flavors/index.js";
+import { confetti, haptic } from "./celebrate.js";
 import { kvGet, kvSet, STATE_KEY } from "./storage.js";
 import { fetchQuota } from "./ai.js";
 import { sampleOffline, fetchAiSuggestions } from "./suggestions.js";
@@ -90,11 +93,18 @@ function weekSeries(log, frozenDays = []) {
 /* ============================================================ */
 export default function App() {
   const [ready, setReady] = useState(false);
-  const [view, setView] = useState("hud"); // hud | analytics | mentor
+  const [view, setView] = useState("hud"); // hud | analytics | rewards | settings
   const [tasks, setTasks] = useState([]);
   const [log, setLog] = useState([]);
   const [xp, setXp] = useState(0);
   const [mentorId, setMentorId] = useState("dungeon_master");
+  const [flavorId, setFlavorId] = useState("classic");
+  const [rewards, setRewards] = useState([]);
+  const [justEarned, setJustEarned] = useState(null);
+  const [reminder, setReminder] = useState({ enabled: false, time: "18:00" });
+  const [lastReminded, setLastReminded] = useState(null);
+  const [notifDenied, setNotifDenied] = useState(false);
+  const [defaultsNote, setDefaultsNote] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [quota, setQuota] = useState(null); // {date, mentorId, text}
   const [quotaLoading, setQuotaLoading] = useState(false);
@@ -103,6 +113,7 @@ export default function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newDiff, setNewDiff] = useState("medium");
   const [newRepeat, setNewRepeat] = useState(null);
+  const [newGroup, setNewGroup] = useState("other");
   const [suggestions, setSuggestions] = useState([]);
   const [suggLoading, setSuggLoading] = useState(false);
   const [suggNote, setSuggNote] = useState("");
@@ -114,8 +125,10 @@ export default function App() {
   const [freezeEarnedDays, setFreezeEarnedDays] = useState([]); // dayKeys a milestone token was granted
   const [tick, setTick] = useState(0);
   const saveTimer = useRef(null);
+  const earnTimer = useRef(null);
 
   const mentor = MENTORS[mentorId] || MENTORS.dungeon_master;
+  const flavor = flavorOf(flavorId);
   /* tick keeps date-dependent metrics fresh across midnight */
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const streak = useMemo(() => computeStreak(log, frozenDays), [log, frozenDays, tick]);
@@ -129,6 +142,10 @@ export default function App() {
     (t) => t.done || !t.repeat || t.lastPeriod !== periodKey(t.repeat)
   );
   const openTasks = visibleTasks.filter((t) => !t.done);
+  /* deck grouped into colour-coded boards, in registry order */
+  const boards = Object.values(GROUPS)
+    .map((g) => ({ g, items: visibleTasks.filter((t) => groupOf(t.group).id === g.id) }))
+    .filter((b) => b.items.length > 0);
 
   /* re-evaluate period boundaries once a minute so recurring tasks respawn */
   useEffect(() => {
@@ -151,28 +168,24 @@ export default function App() {
         setFreezes(s.freezes ?? 1); // pre-feature installs get the starter token
         setFrozenDays(s.frozenDays || []);
         setFreezeEarnedDays(s.freezeEarnedDays || []);
+        setFlavorId(s.flavorId || "classic");
+        setRewards(s.rewards || []);
+        setReminder(s.reminder || { enabled: false, time: "18:00" });
+        setLastReminded(s.lastReminded || null);
       } else {
         setFreezes(1);
-        setTasks([
-          {
-            id: "seed1",
-            title: "Add your first real task",
-            diff: "easy",
-            repeat: null,
+        setTasks(
+          DEFAULT_TASKS.map((d, i) => ({
+            id: `seed${i}`,
+            title: d.title,
+            diff: d.diff,
+            group: d.group,
+            repeat: d.repeat || null,
             lastPeriod: null,
             done: false,
             createdAt: Date.now(),
-          },
-          {
-            id: "seed2",
-            title: "Pick a mentor that suits you",
-            diff: "easy",
-            repeat: null,
-            lastPeriod: null,
-            done: false,
-            createdAt: Date.now(),
-          },
-        ]);
+          }))
+        );
       }
       setReady(true);
     })();
@@ -196,12 +209,16 @@ export default function App() {
             freezes,
             frozenDays,
             freezeEarnedDays,
+            flavorId,
+            rewards,
+            reminder,
+            lastReminded,
           })
         ),
       400
     );
     return () => clearTimeout(saveTimer.current);
-  }, [tasks, log, xp, mentorId, quota, apiKey, freezes, frozenDays, freezeEarnedDays, ready]);
+  }, [tasks, log, xp, mentorId, quota, apiKey, freezes, frozenDays, freezeEarnedDays, flavorId, rewards, reminder, lastReminded, ready]);
 
   /* Spend freeze tokens to bridge missed days, walking back from yesterday.
      Only spends when the whole gap is coverable and a streak day sits behind it —
@@ -237,6 +254,61 @@ export default function App() {
       setFreezes((f) => Math.min(FREEZE_CAP, f + 1));
     }
   }, [ready, streak, freezeEarnedDays]);
+
+  /* Apply the flavor palette at the document root so <body> and the PWA
+     theme-color follow it too. */
+  useEffect(() => {
+    const el = document.documentElement;
+    const KEYS = [
+      "--le-bg", "--le-card", "--le-ink", "--le-muted", "--le-line",
+      "--le-accent", "--le-accent-soft", "--le-accent-line",
+      "--le-amber", "--le-amber-bg", "--le-amber-line", "--le-danger", "--le-bar",
+    ];
+    KEYS.forEach((k) => el.style.removeProperty(k));
+    Object.entries(flavor.palette || {}).forEach(([k, v]) => el.style.setProperty(k, v));
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", getComputedStyle(el).getPropertyValue("--le-bg").trim() || "#F5F2EA");
+  }, [flavor]);
+
+  /* Rewards tab disappears if the active flavor has none. */
+  useEffect(() => {
+    if (view === "rewards" && !flavor.RewardsView) setView("hud");
+  }, [view, flavor]);
+
+  /* App icon badge = open task count (where the Badging API exists). */
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      if (openTasks.length > 0) navigator.setAppBadge?.(openTasks.length);
+      else navigator.clearAppBadge?.();
+    } catch {
+      /* unsupported */
+    }
+  }, [ready, openTasks.length]);
+
+  /* Local daily reminder — fires only while the app is open (no backend).
+     Checks on the minute tick: past the set time, nothing done today, deck
+     not empty, not already reminded today. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ready || !reminder.enabled) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const now = new Date();
+    const [hh, mm] = reminder.time.split(":").map(Number);
+    const due = now.getHours() > hh || (now.getHours() === hh && now.getMinutes() >= mm);
+    const doneToday = log.some((e) => dayKey(e.completedAt) === todayKey());
+    if (due && !doneToday && openTasks.length > 0 && lastReminded !== todayKey()) {
+      setLastReminded(todayKey());
+      const body = `${openTasks.length} task${openTasks.length === 1 ? "" : "s"} waiting — one completion keeps the streak alive.`;
+      navigator.serviceWorker?.getRegistration?.().then((reg) => {
+        if (reg?.showNotification) reg.showNotification("LifeEngine", { body, icon: "icon-192.png" });
+        else new Notification("LifeEngine", { body });
+      }).catch(() => {
+        try { new Notification("LifeEngine", { body }); } catch { /* blocked */ }
+      });
+    }
+  }, [tick, ready, reminder, log, lastReminded, openTasks.length]);
 
   const quotaCtx = useCallback(
     () => ({
@@ -311,12 +383,13 @@ export default function App() {
   };
 
   /* ---------------- task ops ---------------- */
-  const pushTask = (title, diff, repeat) =>
+  const pushTask = (title, diff, repeat, group) =>
     setTasks((ts) => [
       {
-        id: `t${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        id: `t${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
         title,
         diff,
+        group: groupOf(group).id,
         repeat: repeat || null,
         lastPeriod: null,
         done: false,
@@ -328,15 +401,26 @@ export default function App() {
   const addTask = () => {
     const title = newTitle.trim();
     if (!title) return;
-    pushTask(title, newDiff, newRepeat);
+    pushTask(title, newDiff, newRepeat, newGroup);
     setNewTitle("");
     setNewRepeat(null);
     setAdding(false);
   };
 
   const addSuggestion = (s) => {
-    pushTask(s.title, s.diff, null);
+    pushTask(s.title, s.diff, null, s.group);
     setSuggestions((list) => list.filter((x) => x.title !== s.title));
+  };
+
+  /* add any DEFAULT_TASKS not already in the deck (by title) */
+  const addDefaults = () => {
+    const have = new Set(tasks.map((t) => t.title.toLowerCase()));
+    const missing = DEFAULT_TASKS.filter((d) => !have.has(d.title.toLowerCase()));
+    missing.forEach((d) => pushTask(d.title, d.diff, d.repeat, d.group));
+    setDefaultsNote(
+      missing.length === 0 ? "All default tasks are already in the deck" : `${missing.length} added to the deck`
+    );
+    setTimeout(() => setDefaultsNote(""), 2500);
   };
 
   const completeTask = (id) => {
@@ -345,12 +429,35 @@ export default function App() {
     const gain = diffOf(t.diff).xp;
     setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, done: true } : x)));
     setLog((l) => [
-      { id: `l${Date.now()}`, title: t.title, diff: t.diff, xp: gain, completedAt: Date.now() },
+      {
+        id: `l${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        title: t.title,
+        diff: t.diff,
+        group: groupOf(t.group).id,
+        xp: gain,
+        completedAt: Date.now(),
+      },
       ...l,
     ]);
     setXp((v) => v + gain);
     setPulseXp(true);
     setTimeout(() => setPulseXp(false), 700);
+    confetti({ colors: flavor.confettiColors });
+    haptic();
+    if (flavor.reward) {
+      const reward = {
+        id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        flavorId: flavor.id,
+        taskTitle: t.title,
+        group: groupOf(t.group).id,
+        at: Date.now(),
+        data: flavor.reward.generate(t),
+      };
+      setRewards((rs) => [reward, ...rs]);
+      setJustEarned(reward);
+      clearTimeout(earnTimer.current);
+      earnTimer.current = setTimeout(() => setJustEarned(null), 2600);
+    }
     setTimeout(() => {
       if (t.repeat) {
         /* recurring: park until next period instead of deleting */
@@ -367,6 +474,25 @@ export default function App() {
 
   const removeTask = (id) => setTasks((ts) => ts.filter((x) => x.id !== id));
 
+  const toggleReminder = async () => {
+    if (reminder.enabled) {
+      setReminder((r) => ({ ...r, enabled: false }));
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      setNotifDenied(true);
+      return;
+    }
+    let perm = Notification.permission;
+    if (perm === "default") perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      setNotifDenied(true);
+      return;
+    }
+    setNotifDenied(false);
+    setReminder((r) => ({ ...r, enabled: true }));
+  };
+
   const saveKey = () => {
     setApiKey(keyDraft.trim());
     setKeyDraft("");
@@ -380,6 +506,13 @@ export default function App() {
 
   return (
     <div className="le-root">
+      {/* ---------- reward celebration overlay ---------- */}
+      {justEarned && flavor.reward && (
+        <div className="le-reward-pop" onClick={() => setJustEarned(null)}>
+          <flavor.reward.Card reward={justEarned} />
+        </div>
+      )}
+
       {/* ---------- header ---------- */}
       <header className="le-head">
         <div className="le-logo">
@@ -478,6 +611,25 @@ export default function App() {
                         ))}
                       </div>
                       <div>
+                        <div className="le-field-label">Group</div>
+                        <div className="le-group-row">
+                          {Object.values(GROUPS).map((g) => (
+                            <button
+                              key={g.id}
+                              className={`le-group-chip ${newGroup === g.id ? "on" : ""}`}
+                              style={
+                                newGroup === g.id
+                                  ? { background: g.color, borderColor: g.color }
+                                  : undefined
+                              }
+                              onClick={() => setNewGroup(g.id)}
+                            >
+                              {g.glyph} {g.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
                         <div className="le-field-label">Repeats</div>
                         <div className="le-diff-row">
                           {REPEATS.map((r) => (
@@ -510,6 +662,10 @@ export default function App() {
                           onClick={() => addSuggestion(s)}
                         >
                           <span className="le-sugg-plus">+</span>
+                          <span
+                            className="le-dot-swatch"
+                            style={{ background: groupOf(s.group).color }}
+                          />
                           <span className="le-sugg-title">{s.title}</span>
                           <span className="le-sugg-xp le-mono">
                             +{diffOf(s.diff).xp}
@@ -532,14 +688,14 @@ export default function App() {
                           className="le-btn moss"
                           onClick={aiSuggestions}
                           disabled={suggLoading || !apiKey}
-                          title={apiKey ? "" : "Add an API key in the Mentor tab"}
+                          title={apiKey ? "" : "Add an API key in Settings"}
                         >
                           {suggLoading ? "Thinking…" : "✨ AI ideas"}
                         </button>
                       </div>
                       {!apiKey && (
                         <p className="le-fineprint">
-                          AI ideas need an API key — add one in the Mentor tab. The
+                          AI ideas need an API key — add one in Settings. The
                           shuffle list works offline.
                         </p>
                       )}
@@ -556,32 +712,45 @@ export default function App() {
                 </div>
               )}
 
-              {visibleTasks.map((t) => (
-                <div key={t.id} className={`le-card ${t.done ? "out" : ""}`}>
-                  <button
-                    className={`le-check ${t.done ? "done" : ""}`}
-                    onClick={() => completeTask(t.id)}
-                    aria-label={`Complete ${t.title}`}
-                  >
-                    {t.done ? "✓" : ""}
-                  </button>
-                  <div className="le-card-body">
-                    <div className="le-card-title">{t.title}</div>
-                    <div className="le-card-meta">
-                      {diffOf(t.diff).label} ·{" "}
-                      <span className="le-amber">+{diffOf(t.diff).xp} XP</span>
-                      {t.repeat && <span className="le-repeat"> · ↻ {t.repeat}</span>}
-                    </div>
+              {boards.map(({ g, items }) => (
+                <div key={g.id}>
+                  <div className="le-board-head">
+                    <span className="le-dot-swatch" style={{ background: g.color }} />
+                    {g.name}
+                    <span className="le-board-count">{items.filter((t) => !t.done).length}</span>
                   </div>
-                  {!t.done && (
-                    <button
-                      className="le-x"
-                      onClick={() => removeTask(t.id)}
-                      aria-label={`Remove ${t.title}`}
+                  {items.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`le-card ${t.done ? "out" : ""}`}
+                      style={{ borderLeftColor: g.color }}
                     >
-                      ×
-                    </button>
-                  )}
+                      <button
+                        className={`le-check ${t.done ? "done" : ""}`}
+                        onClick={() => completeTask(t.id)}
+                        aria-label={`Complete ${t.title}`}
+                      >
+                        {t.done ? "✓" : ""}
+                      </button>
+                      <div className="le-card-body">
+                        <div className="le-card-title">{t.title}</div>
+                        <div className="le-card-meta">
+                          {diffOf(t.diff).label} ·{" "}
+                          <span className="le-amber">+{diffOf(t.diff).xp} XP</span>
+                          {t.repeat && <span className="le-repeat"> · ↻ {t.repeat}</span>}
+                        </div>
+                      </div>
+                      {!t.done && (
+                        <button
+                          className="le-x"
+                          onClick={() => removeTask(t.id)}
+                          aria-label={`Remove ${t.title}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))}
             </section>
@@ -641,24 +810,97 @@ export default function App() {
           </>
         )}
 
-        {view === "mentor" && (
+        {view === "rewards" && flavor.RewardsView && (
+          <flavor.RewardsView rewards={rewards} log={log} />
+        )}
+
+        {view === "settings" && (
           <>
-            <h2 className="le-h2" style={{ marginBottom: 4 }}>Choose your mentor</h2>
-            <p className="le-sub">Sets the voice of your daily transmission.</p>
-            {Object.values(MENTORS).map((m) => (
-              <button
-                key={m.id}
-                className={`le-mentor ${m.id === mentorId ? "on" : ""}`}
-                onClick={() => setMentorId(m.id)}
-              >
-                <span className="le-glyph">{m.glyph}</span>
-                <span className="le-mentor-text">
-                  <span className="le-card-title">{m.name}</span>
-                  <span className="le-card-meta">{m.tagline}</span>
-                </span>
-                {m.id === mentorId && <span className="le-mentor-on">Active</span>}
-              </button>
-            ))}
+            <div className="le-settings-section">
+              <h2 className="le-h2" style={{ marginBottom: 4 }}>Style</h2>
+              <p className="le-sub">Changes the look and the reward system on this device.</p>
+              {Object.values(FLAVORS).map((f) => (
+                <button
+                  key={f.id}
+                  className={`le-mentor ${f.id === flavorId ? "on" : ""}`}
+                  onClick={() => setFlavorId(f.id)}
+                >
+                  <span className="le-glyph">{f.glyph}</span>
+                  <span className="le-mentor-text">
+                    <span className="le-card-title">{f.name}</span>
+                    <span className="le-card-meta">{f.tagline}</span>
+                  </span>
+                  {f.id === flavorId && <span className="le-mentor-on">Active</span>}
+                </button>
+              ))}
+            </div>
+
+            <div className="le-settings-section">
+              <h2 className="le-h2" style={{ marginBottom: 4 }}>Mentor</h2>
+              <p className="le-sub">Sets the voice of your daily transmission.</p>
+              {Object.values(MENTORS).map((m) => (
+                <button
+                  key={m.id}
+                  className={`le-mentor ${m.id === mentorId ? "on" : ""}`}
+                  onClick={() => setMentorId(m.id)}
+                >
+                  <span className="le-glyph">{m.glyph}</span>
+                  <span className="le-mentor-text">
+                    <span className="le-card-title">{m.name}</span>
+                    <span className="le-card-meta">{m.tagline}</span>
+                  </span>
+                  {m.id === mentorId && <span className="le-mentor-on">Active</span>}
+                </button>
+              ))}
+            </div>
+
+            <div className="le-settings-section">
+              <h2 className="le-h2" style={{ marginBottom: 4 }}>Daily reminder</h2>
+              <p className="le-sub">
+                A nudge if nothing is completed by the set time. Works while the app is
+                open — without a server, the phone can't be reached once the app is
+                fully closed.
+              </p>
+              <div className="le-add">
+                <div className="le-key-row">
+                  <button
+                    className={`le-btn ${reminder.enabled ? "moss" : ""}`}
+                    onClick={toggleReminder}
+                  >
+                    {reminder.enabled ? "Reminders on ✓" : "Enable reminders"}
+                  </button>
+                  <input
+                    className="le-input"
+                    type="time"
+                    style={{ width: "auto" }}
+                    value={reminder.time}
+                    onChange={(e) =>
+                      setReminder((r) => ({ ...r, time: e.target.value || "18:00" }))
+                    }
+                  />
+                </div>
+                {notifDenied && (
+                  <p className="le-fineprint">
+                    Notifications are blocked for this site — allow them in your
+                    browser/site settings, then try again.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="le-settings-section">
+              <h2 className="le-h2" style={{ marginBottom: 4 }}>Starter tasks</h2>
+              <p className="le-sub">
+                Adds the default task set (grouped: health, mindfulness, chores,
+                learning, connection) — skips any already in your deck.
+              </p>
+              <div className="le-key-row">
+                <button className="le-btn" onClick={addDefaults}>
+                  Add default tasks
+                </button>
+                {defaultsNote && <p className="le-fineprint" style={{ alignSelf: "center" }}>{defaultsNote}</p>}
+              </div>
+            </div>
 
             <h2 className="le-h2" style={{ margin: "22px 0 4px" }}>AI connection</h2>
             <p className="le-sub">
@@ -700,11 +942,17 @@ export default function App() {
         )}
       </main>
 
-      <nav className="le-nav">
+      <nav
+        className="le-nav"
+        style={{ gridTemplateColumns: `repeat(${flavor.RewardsView ? 4 : 3}, 1fr)` }}
+      >
         {[
           ["hud", "HUD"],
           ["analytics", "Analytics"],
-          ["mentor", "Mentor"],
+          ...(flavor.RewardsView
+            ? [["rewards", flavor.reward?.tabLabel || "Rewards"]]
+            : []),
+          ["settings", "Settings"],
         ].map(([id, label]) => (
           <button
             key={id}
