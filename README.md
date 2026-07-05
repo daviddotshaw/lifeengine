@@ -46,6 +46,12 @@ The **+ Task** panel has two modes:
 - **Custom** — title, difficulty, and a repeat cadence: Once, Daily, Weekly, or Monthly. Recurring tasks award XP each completion, disappear for the rest of the current day/ISO week/calendar month, then return automatically. Deleting one (×) removes it permanently.
 - **Suggested** — tap-to-add ideas. **Shuffle** draws from the offline list in `src/suggestions.js` (edit `OFFLINE_SUGGESTIONS` to make it yours); **✨ AI ideas** asks Claude for suggestions tailored to your current deck, streak, and XP (requires the API key below), falling back to the offline list if the call fails.
 
+## Streak freezes
+
+Missing a day normally resets the streak. Freeze tokens (🧊, shown next to the streak metric) soften that: when a past day would break the chain, tokens are spent automatically — one per missed day — but only if the whole gap can be covered and there's a streak behind it, so tokens are never wasted on an already-dead streak. Today is never frozen; the streak always survives until the day ends.
+
+You start with 1 token, earn another at every 7-day streak milestone, and can hold at most 3. Frozen days appear as 🧊 in the weekly chart. Entirely local logic — works offline like everything else.
+
 ## Installing full screen
 
 - **Android/Chrome:** open the site → menu → "Add to Home screen" / "Install app".

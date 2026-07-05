@@ -49,9 +49,15 @@ const REPEATS = [
   { id: "monthly", label: "Monthly" },
 ];
 
+/* ---------------- streak freezes ---------------- */
+/* Tokens auto-spent to bridge missed days so the streak survives.
+   One is earned at every 7-day streak milestone, capped at FREEZE_CAP. */
+const FREEZE_CAP = 3;
+
 /* ---------------- derived metrics ---------------- */
-function computeStreak(log) {
+function computeStreak(log, frozenDays = []) {
   const days = new Set(log.map((e) => dayKey(e.completedAt)));
+  frozenDays.forEach((d) => days.add(d));
   let streak = 0;
   let i = days.has(todayKey()) ? 0 : 1; // streak survives until today ends
   if (i === 1 && !days.has(daysAgoKey(1))) return 0;
@@ -66,7 +72,7 @@ function computeVelocity(log) {
   const week = log.filter((e) => e.completedAt > Date.now() - 7 * 86400000).length;
   return { today, avg: Math.round((week / 7) * 10) / 10 };
 }
-function weekSeries(log) {
+function weekSeries(log, frozenDays = []) {
   const out = [];
   for (let n = 6; n >= 0; n--) {
     const key = daysAgoKey(n);
@@ -75,6 +81,7 @@ function weekSeries(log) {
       label: n === 0 ? "Today" : weekdayShort(n),
       count: entries.length,
       xp: entries.reduce((s, e) => s + e.xp, 0),
+      frozen: frozenDays.includes(key),
     });
   }
   return out;
@@ -102,13 +109,20 @@ export default function App() {
   const [pulseXp, setPulseXp] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaved, setKeySaved] = useState(false);
-  const [, setTick] = useState(0);
+  const [freezes, setFreezes] = useState(0);
+  const [frozenDays, setFrozenDays] = useState([]); // dayKeys bridged by a spent token
+  const [freezeEarnedDays, setFreezeEarnedDays] = useState([]); // dayKeys a milestone token was granted
+  const [tick, setTick] = useState(0);
   const saveTimer = useRef(null);
 
   const mentor = MENTORS[mentorId] || MENTORS.dungeon_master;
-  const streak = useMemo(() => computeStreak(log), [log]);
-  const velocity = useMemo(() => computeVelocity(log), [log]);
-  const week = useMemo(() => weekSeries(log), [log]);
+  /* tick keeps date-dependent metrics fresh across midnight */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const streak = useMemo(() => computeStreak(log, frozenDays), [log, frozenDays, tick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const velocity = useMemo(() => computeVelocity(log), [log, tick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const week = useMemo(() => weekSeries(log, frozenDays), [log, frozenDays, tick]);
 
   /* Recurring tasks hide until their next period; done cards stay for exit anim. */
   const visibleTasks = tasks.filter(
@@ -134,7 +148,11 @@ export default function App() {
         setMentorId(s.mentorId || "dungeon_master");
         setQuota(s.quota || null);
         setApiKey(s.apiKey || "");
+        setFreezes(s.freezes ?? 1); // pre-feature installs get the starter token
+        setFrozenDays(s.frozenDays || []);
+        setFreezeEarnedDays(s.freezeEarnedDays || []);
       } else {
+        setFreezes(1);
         setTasks([
           {
             id: "seed1",
@@ -165,11 +183,60 @@ export default function App() {
     if (!ready) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(
-      () => kvSet(STATE_KEY, JSON.stringify({ tasks, log, xp, mentorId, quota, apiKey })),
+      () =>
+        kvSet(
+          STATE_KEY,
+          JSON.stringify({
+            tasks,
+            log,
+            xp,
+            mentorId,
+            quota,
+            apiKey,
+            freezes,
+            frozenDays,
+            freezeEarnedDays,
+          })
+        ),
       400
     );
     return () => clearTimeout(saveTimer.current);
-  }, [tasks, log, xp, mentorId, quota, apiKey, ready]);
+  }, [tasks, log, xp, mentorId, quota, apiKey, freezes, frozenDays, freezeEarnedDays, ready]);
+
+  /* Spend freeze tokens to bridge missed days, walking back from yesterday.
+     Only spends when the whole gap is coverable and a streak day sits behind it —
+     tokens are never wasted on an already-broken streak. Today is never frozen
+     (the streak survives until today ends). */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ready) return;
+    const days = new Set(log.map((e) => dayKey(e.completedAt)));
+    frozenDays.forEach((d) => days.add(d));
+    if (days.size === 0) return;
+    const missing = [];
+    let anchored = false;
+    for (let i = 1; missing.length <= freezes; i++) {
+      const key = daysAgoKey(i);
+      if (days.has(key)) {
+        anchored = true;
+        break;
+      }
+      missing.push(key);
+    }
+    if (anchored && missing.length > 0 && missing.length <= freezes) {
+      setFreezes((f) => f - missing.length);
+      setFrozenDays((fd) => [...fd, ...missing]);
+    }
+  }, [ready, log, frozenDays, freezes, tick]);
+
+  /* Earn a token at every 7-day streak milestone (once per day, capped). */
+  useEffect(() => {
+    if (!ready) return;
+    if (streak > 0 && streak % 7 === 0 && !freezeEarnedDays.includes(todayKey())) {
+      setFreezeEarnedDays((d) => [...d, todayKey()]);
+      setFreezes((f) => Math.min(FREEZE_CAP, f + 1));
+    }
+  }, [ready, streak, freezeEarnedDays]);
 
   const quotaCtx = useCallback(
     () => ({
@@ -331,8 +398,11 @@ export default function App() {
               <Metric
                 label="Streak"
                 value={streak}
-                sub={streak === 1 ? "day" : "days"}
+                sub={`${streak === 1 ? "day" : "days"} · 🧊 ${freezes}`}
                 hot={streak >= 3}
+                title={`${freezes} freeze token${
+                  freezes === 1 ? "" : "s"
+                } — auto-spent to cover a missed day. Earn one at every 7-day streak milestone (max ${FREEZE_CAP}).`}
               />
               <Metric label="In deck" value={openTasks.length} sub="open tasks" />
             </section>
@@ -481,7 +551,8 @@ export default function App() {
               {openTasks.length === 0 && !adding && (
                 <div className="le-empty">
                   Deck is clear. Add a task to earn XP — your streak counts any day with
-                  at least one completion. Recurring tasks return on their next cycle.
+                  at least one completion, and 🧊 freeze tokens cover missed days
+                  automatically. Recurring tasks return on their next cycle.
                 </div>
               )}
 
@@ -524,7 +595,9 @@ export default function App() {
               <div className="le-chart">
                 {week.map((d, i) => (
                   <div key={i} className="le-bar-col">
-                    <div className="le-bar-count">{d.count > 0 ? d.count : ""}</div>
+                    <div className="le-bar-count">
+                      {d.count > 0 ? d.count : d.frozen ? "🧊" : ""}
+                    </div>
                     <div
                       className={`le-bar ${i === 6 ? "today" : ""}`}
                       style={{ height: `${Math.max(4, (d.count / maxCount) * 110)}px` }}
@@ -646,9 +719,9 @@ export default function App() {
   );
 }
 
-function Metric({ label, value, sub, hot }) {
+function Metric({ label, value, sub, hot, title }) {
   return (
-    <div className="le-metric">
+    <div className="le-metric" title={title}>
       <div className="le-metric-label">{label}</div>
       <div className={`le-metric-value ${hot ? "hot" : ""}`}>
         {value}

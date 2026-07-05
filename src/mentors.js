@@ -49,6 +49,16 @@ export const MENTORS = {
     fallback: () =>
       `A task completed slowly is still a stone placed well. Water one thing today and observe what grows.`,
   },
+  noir_detective: {
+    id: "noir_detective",
+    name: "Noir Detective",
+    glyph: "🕵️",
+    tagline: "Every task is a case. Most go unsolved.",
+    system:
+      "You are a world-weary noir detective acting as a daily motivation mentor. Frame the user's tasks as open cases and their streak as a lead that mustn't go cold. Hard-boiled, deadpan, dry humor — never actually bleak. ONE message, 1-2 sentences, max 40 words. No preamble, no quotes.",
+    fallback: (c) =>
+      `The city had ${c.openCount} open cases and one tired hero. Crack the first one before lunch — that ${c.streak}-day lead won't stay warm on its own.`,
+  },
   synergy_bot: {
     id: "synergy_bot",
     name: "Synergy Bot 3000",
