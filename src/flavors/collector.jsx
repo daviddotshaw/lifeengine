@@ -149,7 +149,8 @@ function ForretressArt({ d, px = 84 }) {
 function ForretressImg({ d, px = 84 }) {
   const [failed, setFailed] = useState(false);
   const scale = SIZE_SCALE[d.size] || 0.92;
-  const variant = d.shiny ? "shiny" : d.shadow ? "shadow" : "normal";
+  const variant =
+    d.shiny && d.shadow ? "shadow-shiny" : d.shiny ? "shiny" : d.shadow ? "shadow" : "normal";
   if (failed) return <ForretressArt d={d} px={px} />;
   return (
     <img
@@ -184,7 +185,14 @@ function Card({ reward }) {
 function FullCard({ reward, onClose }) {
   const d = reward.data;
   const frame = d.shiny ? "shiny" : d.shadow ? "shadow" : "";
-  const rarity = d.shiny ? "★ SHINY" : d.shadow ? "☾ SHADOW" : "● COMMON";
+  const rarity =
+    d.shiny && d.shadow
+      ? "★☾ SHADOW SHINY"
+      : d.shiny
+      ? "★ SHINY"
+      : d.shadow
+      ? "☾ SHADOW"
+      : "● COMMON";
   return (
     <div className="le-tcard-pop" onClick={onClose}>
       <div className={`le-tcard ${frame}`} onClick={(e) => e.stopPropagation()}>
