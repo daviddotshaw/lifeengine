@@ -16,6 +16,8 @@ export const OFFLINE_SUGGESTIONS = [
   { title: "Cook a proper meal (no takeaway)", diff: "medium", group: "health" },
   { title: "Clear your email inbox to zero", diff: "medium", group: "other" },
   { title: "Read 20 pages of a book", diff: "medium", group: "learning" },
+  { title: "Doodle something for 10 minutes", diff: "easy", group: "creative" },
+  { title: "Take five interesting photos on a walk", diff: "medium", group: "creative" },
   { title: "Do one load of laundry start to finish", diff: "medium", group: "chores" },
   { title: "Back up your important files", diff: "medium", group: "other" },
   { title: "30-minute workout", diff: "hard", group: "health" },
@@ -48,7 +50,7 @@ export async function fetchAiSuggestions(apiKey, ctx) {
     `They have a ${ctx.streak}-day streak and ${ctx.xp} XP. ` +
     `Do not duplicate their open tasks. Mix difficulties. ` +
     `Respond ONLY with a JSON array, no markdown fences, no other text, in the form: ` +
-    `[{"title":"...","diff":"easy|medium|hard|epic","group":"health|mindfulness|chores|learning|social|other"}]. ` +
+    `[{"title":"...","diff":"easy|medium|hard|epic","group":"health|mindfulness|chores|learning|creative|social|other"}]. ` +
     `Titles max 8 words.`;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -78,7 +80,7 @@ export async function fetchAiSuggestions(apiKey, ctx) {
   const parsed = JSON.parse(text);
   if (!Array.isArray(parsed)) throw new Error("bad shape");
   const valid = new Set(["easy", "medium", "hard", "epic"]);
-  const validGroups = new Set(["health", "mindfulness", "chores", "learning", "social", "other"]);
+  const validGroups = new Set(["health", "mindfulness", "chores", "learning", "creative", "social", "other"]);
   return parsed
     .filter((s) => s && typeof s.title === "string" && s.title.trim())
     .map((s) => ({

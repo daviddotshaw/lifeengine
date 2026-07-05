@@ -144,6 +144,25 @@ function ForretressArt({ d, px = 84 }) {
   );
 }
 
+/* Hand-drawn art from public/art/ when present (normal/shiny/shadow
+   variants); falls back to the procedural SVG if a file is missing. */
+function ForretressImg({ d, px = 84 }) {
+  const [failed, setFailed] = useState(false);
+  const scale = SIZE_SCALE[d.size] || 0.92;
+  const variant = d.shiny ? "shiny" : d.shadow ? "shadow" : "normal";
+  if (failed) return <ForretressArt d={d} px={px} />;
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}art/forretress-${variant}.png`}
+      width={Math.round(px * scale)}
+      height={Math.round(px * scale)}
+      alt="Forretress"
+      style={{ objectFit: "contain" }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 const statLine = (d) =>
   `${d.size} · wt ${d.weight} · ${d.luster} · ${d.strength}`;
 
@@ -151,7 +170,7 @@ function Card({ reward }) {
   const d = reward.data;
   return (
     <div className="le-reward-card">
-      <ForretressArt d={d} px={110} />
+      <ForretressImg d={d} px={110} />
       <div className="le-reward-name">
         {d.shiny && "🌟 Shiny "}
         {d.shadow && "🌑 Shadow "}Forretress!
@@ -177,10 +196,10 @@ function FullCard({ reward, onClose }) {
           <span className="le-tcard-hp le-mono">WT {d.weight}/5</span>
         </div>
         <div className="le-tcard-art">
-          <ForretressArt d={d} px={175} />
+          <ForretressImg d={d} px={175} />
         </div>
         <div className="le-tcard-type">
-          {d.size} armour creature · {d.luster} shell
+          {d.size} Bagworm Pokémon · {d.luster} shell
         </div>
         <div className="le-tcard-rows">
           <div className="le-tcard-row"><span>Size</span><b>{d.size}</b></div>
@@ -235,7 +254,7 @@ function RewardsView({ rewards }) {
             className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}
             onClick={() => setOpenId(r.id)}
           >
-            <ForretressArt d={r.data} px={72} />
+            <ForretressImg d={r.data} px={72} />
             <div className="le-dex-stats">
               {r.data.shiny && "🌟"}
               {r.data.shadow && "🌑"} {statLine(r.data)}

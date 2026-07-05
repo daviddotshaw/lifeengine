@@ -12,6 +12,7 @@ export const GROUPS = {
   mindfulness: { id: "mindfulness", name: "Mindfulness", color: "#5B7DB1", glyph: "🧘" },
   chores: { id: "chores", name: "Chores", color: "#3E7C6F", glyph: "🧹" },
   learning: { id: "learning", name: "Learning", color: "#A8842C", glyph: "📚" },
+  creative: { id: "creative", name: "Creative", color: "#CB6B2E", glyph: "🎨" },
   social: { id: "social", name: "Connection", color: "#9C6B9E", glyph: "💬" },
   other: { id: "other", name: "Other", color: "#6E7887", glyph: "🗂️" },
 };
@@ -29,6 +30,8 @@ export const DEFAULT_TASKS = [
   { title: "One load of laundry start to finish", diff: "medium", group: "chores", repeat: "weekly" },
   { title: "Read 20 pages of a book", diff: "medium", group: "learning", repeat: "daily" },
   { title: "Practise a skill for 15 minutes", diff: "medium", group: "learning", repeat: "daily" },
+  { title: "Doodle or sketch for 10 minutes", diff: "easy", group: "creative", repeat: "daily" },
+  { title: "Work on a creative project for 30 minutes", diff: "medium", group: "creative", repeat: "weekly" },
   { title: "Message a friend", diff: "easy", group: "social", repeat: "daily" },
   { title: "Call family for a proper chat", diff: "medium", group: "social", repeat: "weekly" },
 ];
