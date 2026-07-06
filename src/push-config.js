@@ -7,4 +7,4 @@
    nothing push-related runs. The VAPID public key is fetched
    from the server, so this URL is the only thing to configure.
    ------------------------------------------------------------ */
-export const PUSH_SERVER = "";
+export const PUSH_SERVER = "https://push.dublincanvasgo.ie";
