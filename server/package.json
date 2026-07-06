@@ -1,0 +1,14 @@
+{
+  "name": "lifeengine-push-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Companion Web Push reminder server for the LifeEngine PWA",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node push-server.mjs"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

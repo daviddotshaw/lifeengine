@@ -4,6 +4,13 @@ import { GROUPS, groupOf, DEFAULT_TASKS } from "./groups.js";
 import { FLAVORS, flavorOf } from "./flavors/index.js";
 import { confetti, haptic } from "./celebrate.js";
 import { kvGet, kvSet, STATE_KEY } from "./storage.js";
+import {
+  pushConfigured,
+  subscribePush,
+  unsubscribePush,
+  updatePushTime,
+  pingDone,
+} from "./push.js";
 import { fetchQuota } from "./ai.js";
 import { sampleOffline, fetchAiSuggestions } from "./suggestions.js";
 
@@ -104,6 +111,8 @@ export default function App() {
   const [reminder, setReminder] = useState({ enabled: false, time: "18:00" });
   const [lastReminded, setLastReminded] = useState(null);
   const [notifDenied, setNotifDenied] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushNote, setPushNote] = useState("");
   const [defaultsNote, setDefaultsNote] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [quota, setQuota] = useState(null); // {date, mentorId, text}
@@ -176,6 +185,7 @@ export default function App() {
         setRewards(s.rewards || []);
         setReminder(s.reminder || { enabled: false, time: "18:00" });
         setLastReminded(s.lastReminded || null);
+        setPushEnabled(s.pushEnabled ?? false);
       } else {
         setFreezes(1);
         setTasks(
@@ -217,12 +227,13 @@ export default function App() {
             rewards,
             reminder,
             lastReminded,
+            pushEnabled,
           })
         ),
       400
     );
     return () => clearTimeout(saveTimer.current);
-  }, [tasks, log, xp, mentorId, quota, apiKey, freezes, frozenDays, freezeEarnedDays, flavorId, rewards, reminder, lastReminded, ready]);
+  }, [tasks, log, xp, mentorId, quota, apiKey, freezes, frozenDays, freezeEarnedDays, flavorId, rewards, reminder, lastReminded, pushEnabled, ready]);
 
   /* Spend freeze tokens to bridge missed days, walking back from yesterday.
      Only spends when the whole gap is coverable and a streak day sits behind it —
@@ -290,6 +301,13 @@ export default function App() {
       /* unsupported */
     }
   }, [ready, openTasks.length]);
+
+  /* Keep the server-side reminder time in sync when it changes. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ready || !pushEnabled || !pushConfigured()) return;
+    updatePushTime(reminder.time).catch(() => {});
+  }, [reminder.time]);
 
   /* Local daily reminder — fires only while the app is open (no backend).
      Checks on the minute tick: past the set time, nothing done today, deck
@@ -449,6 +467,8 @@ export default function App() {
     setTimeout(() => setPulseXp(false), 700);
     confetti({ colors: flavor.confettiColors });
     haptic();
+    /* tell the push server today is covered, so no evening nag */
+    if (pushEnabled && pushConfigured()) pingDone().catch(() => {});
     if (flavor.reward) {
       const reward = {
         id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
@@ -538,6 +558,29 @@ export default function App() {
     }
     setNotifDenied(false);
     setReminder((r) => ({ ...r, enabled: true }));
+  };
+
+  const togglePush = async () => {
+    setPushNote("");
+    try {
+      if (pushEnabled) {
+        await unsubscribePush();
+        setPushEnabled(false);
+        return;
+      }
+      let perm = Notification.permission;
+      if (perm === "default") perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        setNotifDenied(true);
+        return;
+      }
+      setNotifDenied(false);
+      await subscribePush(reminder.time);
+      setPushEnabled(true);
+    } catch (e) {
+      console.error("push toggle", e);
+      setPushNote("Couldn't reach the push server — check it's up, then try again.");
+    }
   };
 
   const saveKey = () => {
@@ -1025,6 +1068,29 @@ export default function App() {
                   <p className="le-fineprint">
                     Notifications are blocked for this site — allow them in your
                     browser/site settings, then try again.
+                  </p>
+                )}
+                {pushConfigured() ? (
+                  <>
+                    <button
+                      className={`le-btn ${pushEnabled ? "moss" : ""}`}
+                      onClick={togglePush}
+                    >
+                      {pushEnabled
+                        ? "Background reminders on ✓"
+                        : "Enable background reminders"}
+                    </button>
+                    {pushNote && <p className="le-fineprint">{pushNote}</p>}
+                    <p className="le-fineprint">
+                      Background reminders arrive even with the app closed, at the time
+                      set above. On iPhone the app must be installed to the Home
+                      Screen. Completing any task cancels that day's reminder.
+                    </p>
+                  </>
+                ) : (
+                  <p className="le-fineprint">
+                    Reminders are in-app only on this build. True background reminders
+                    need the companion push server — see server/README.md in the repo.
                   </p>
                 )}
               </div>

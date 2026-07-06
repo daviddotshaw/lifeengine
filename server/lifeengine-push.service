@@ -1,0 +1,18 @@
+[Unit]
+Description=LifeEngine push reminder server
+After=network.target
+
+[Service]
+Type=simple
+# Adjust user and path to where you copied the server directory
+User=www-data
+WorkingDirectory=/opt/lifeengine-push
+ExecStart=/usr/bin/node push-server.mjs
+Restart=on-failure
+RestartSec=5
+Environment=PORT=8787
+Environment=ALLOWED_ORIGIN=https://daviddotshaw.github.io
+# Environment=VAPID_CONTACT=mailto:you@example.ie
+
+[Install]
+WantedBy=multi-user.target

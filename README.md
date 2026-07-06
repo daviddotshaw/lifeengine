@@ -64,7 +64,7 @@ The **+ Task** panel has two modes:
 
 Completing a task fires a confetti burst (dependency-free, respects `prefers-reduced-motion`) and haptics via `navigator.vibrate` (Android/Chrome; iOS ignores it), plus the active flavor's reward pop-up.
 
-**Settings → Daily reminder** shows a notification if nothing has been completed by a set time. This is local-only: it can only fire while the app is open, because without a backend there is no way to reach a fully closed PWA. True push reminders would need a small server holding Web Push subscriptions. The app also sets the icon badge to the open-task count where the Badging API exists (installed Chromium PWAs).
+**Settings → Daily reminder** shows a notification if nothing has been completed by a set time. Out of the box this is local-only (fires while the app is open). For **background reminders** — arriving with the app fully closed — deploy the tiny self-hosted companion service in [`server/`](server/README.md) and set its URL in `src/push-config.js`; an "Enable background reminders" button then appears. The server holds only push endpoints, reminder times and timezones — never task data — and completing any task cancels that day's reminder. The app also sets the icon badge to the open-task count where the Badging API exists (installed Chromium PWAs).
 
 ## Streak freezes
 

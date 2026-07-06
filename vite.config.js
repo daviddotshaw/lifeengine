@@ -11,6 +11,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      /* injectManifest: we ship our own src/sw.js (precache + Web Push
+         handlers) instead of the generated worker */
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.js",
       registerType: "autoUpdate",
       includeAssets: ["icon-192.png", "icon-512.png"],
       manifest: {
@@ -34,25 +39,8 @@ export default defineConfig({
           }
         ]
       },
-      workbox: {
-        globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
-        // never cache API calls
-        navigateFallbackDenylist: [/^\/api/],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: "StaleWhileRevalidate",
-            options: { cacheName: "google-fonts-css" }
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "google-fonts-files",
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 }
-            }
-          }
-        ]
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,png,svg,woff2}"]
       }
     })
   ]
