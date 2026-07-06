@@ -267,11 +267,15 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 @keyframes le-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ---- collector gallery ---- */
-.le-dex { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+/* minmax(0,1fr): columns may shrink below their content's min width,
+   so long no-wrap task titles ellipsize instead of widening the grid
+   past the phone viewport */
+.le-dex { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .le-dex-cell {
   background: var(--le-card); border: 1px solid var(--le-line); border-radius: 13px;
   padding: 8px 6px; text-align: center;
   font: inherit; color: inherit; cursor: pointer; display: block; width: 100%;
+  min-width: 0; overflow: hidden;
 }
 .le-dex-cell:hover { border-color: var(--le-accent); }
 .le-dex-cell.shiny { border-color: var(--le-amber); background: var(--le-amber-bg); }
