@@ -194,7 +194,9 @@ function Card({ reward }) {
 }
 
 /* Full-screen trading-card view of one creature. */
-function FullCard({ reward, onClose }) {
+function FullCard({ reward, onClose, onRename }) {
+  const [naming, setNaming] = useState(false);
+  const [draft, setDraft] = useState(reward.name || "");
   const d = reward.data;
   const frame = d.shiny ? "shiny" : d.shadow ? "shadow" : "";
   const rarity =
@@ -205,16 +207,47 @@ function FullCard({ reward, onClose }) {
       : d.shadow
       ? "☾ SHADOW"
       : "● COMMON";
+  const saveName = () => {
+    onRename(draft.trim());
+    setNaming(false);
+  };
   return (
     <div className="le-tcard-pop" onClick={onClose}>
       <div className={`le-tcard ${frame}`} onClick={(e) => e.stopPropagation()}>
         <div className="le-tcard-head">
           <span className="le-tcard-name">
             {d.shiny && "🌟 "}
-            {d.shadow && "🌑 "}Forretress
+            {d.shadow && "🌑 "}
+            {reward.name || "Forretress"}
+            <button
+              className="le-tcard-rename"
+              onClick={() => {
+                setDraft(reward.name || "");
+                setNaming((n) => !n);
+              }}
+              aria-label="Name this Forretress"
+            >
+              ✎
+            </button>
           </span>
           <span className="le-tcard-hp le-mono">WT {d.weight}/5</span>
         </div>
+        {naming && (
+          <div className="le-tcard-name-row">
+            <input
+              className="le-input"
+              value={draft}
+              maxLength={24}
+              placeholder="Give it a name…"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveName()}
+              autoFocus
+            />
+            <button className="le-btn moss" onClick={saveName}>
+              Save
+            </button>
+          </div>
+        )}
         <div className="le-tcard-art">
           <ForretressImg d={d} px={175} />
         </div>
@@ -248,13 +281,40 @@ function FullCard({ reward, onClose }) {
   );
 }
 
-function RewardsView({ rewards }) {
+const VARIANT_FILTERS = [
+  ["all", "All"],
+  ["shiny", "🌟 Shiny"],
+  ["shadow", "🌑 Shadow"],
+  ["lucky", "⚡ Lucky"],
+];
+
+function RewardsView({ rewards, updateReward }) {
   const [openId, setOpenId] = useState(null);
+  const [fVariant, setFVariant] = useState("all");
+  const [fSize, setFSize] = useState("all");
+  const [fLuster, setFLuster] = useState("all");
+  const [fStrength, setFStrength] = useState("all");
   const mine = rewards.filter((r) => r.flavorId === "collector");
   const shinies = mine.filter((r) => r.data.shiny).length;
   const shadows = mine.filter((r) => r.data.shadow).length;
   const open = mine.find((r) => r.id === openId);
   const luckyIn = LUCKY_EVERY - (mine.length % LUCKY_EVERY);
+
+  const filtered = mine.filter(
+    (r) =>
+      (fVariant === "all" ||
+        (fVariant === "shiny"
+          ? r.data.shiny
+          : fVariant === "shadow"
+          ? r.data.shadow
+          : r.data.lucky)) &&
+      (fSize === "all" || r.data.size === fSize) &&
+      (fLuster === "all" || r.data.luster === fLuster) &&
+      (fStrength === "all" || r.data.strength === fStrength)
+  );
+  const filtering =
+    fVariant !== "all" || fSize !== "all" || fLuster !== "all" || fStrength !== "all";
+
   return (
     <>
       <h2 className="le-h2" style={{ marginBottom: 4 }}>Collection</h2>
@@ -262,14 +322,57 @@ function RewardsView({ rewards }) {
         {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow — tap one for
         its card. ⚡ {luckyIn === 1 ? "Next catch is a lucky roll!" : `Lucky roll in ${luckyIn} catches.`}
       </p>
+      {mine.length > 0 && (
+        <div className="le-dex-filters">
+          <div className="le-dex-filter-row">
+            {VARIANT_FILTERS.map(([id, label]) => (
+              <button
+                key={id}
+                className={`le-diff ${fVariant === id ? "on" : ""}`}
+                onClick={() => setFVariant(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="le-dex-filter-row selects">
+            <select className="le-select" value={fSize} onChange={(e) => setFSize(e.target.value)}>
+              <option value="all">Size: all</option>
+              {SIZES.map(([s]) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <select className="le-select" value={fLuster} onChange={(e) => setFLuster(e.target.value)}>
+              <option value="all">Luster: all</option>
+              {LUSTERS.map(([l]) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+            <select className="le-select" value={fStrength} onChange={(e) => setFStrength(e.target.value)}>
+              <option value="all">Strength: all</option>
+              {STRENGTHS.map(([s]) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          {filtering && (
+            <div className="le-fineprint">
+              Showing {filtered.length} of {mine.length}
+            </div>
+          )}
+        </div>
+      )}
       {mine.length === 0 && (
         <div className="le-empty">
           Complete a task to generate your first Forretress. Every one rolls its own
           size, weight, luster and strength.
         </div>
       )}
+      {mine.length > 0 && filtered.length === 0 && (
+        <div className="le-empty">Nothing matches those filters.</div>
+      )}
       <div className="le-dex">
-        {mine.map((r) => (
+        {filtered.map((r) => (
           <button
             key={r.id}
             className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}
@@ -278,6 +381,7 @@ function RewardsView({ rewards }) {
             <div className="le-dex-art">
               <ForretressImg d={r.data} px={72} />
             </div>
+            {r.name && <div className="le-dex-name">{r.name}</div>}
             <div className="le-dex-stats">
               {r.data.shiny && "🌟"}
               {r.data.shadow && "🌑"}
@@ -287,7 +391,13 @@ function RewardsView({ rewards }) {
           </button>
         ))}
       </div>
-      {open && <FullCard reward={open} onClose={() => setOpenId(null)} />}
+      {open && (
+        <FullCard
+          reward={open}
+          onClose={() => setOpenId(null)}
+          onRename={(name) => updateReward(open.id, { name })}
+        />
+      )}
     </>
   );
 }

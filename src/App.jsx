@@ -501,6 +501,10 @@ export default function App() {
 
   const removeTask = (id) => setTasks((ts) => ts.filter((x) => x.id !== id));
 
+  /* flavors can patch their own rewards (e.g. nicknames) */
+  const updateReward = (id, patch) =>
+    setRewards((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
   /* first × tap arms the delete for 3s; second tap confirms */
   const deleteTimer = useRef(null);
   const requestDelete = (id) => {
@@ -985,7 +989,7 @@ export default function App() {
         )}
 
         {view === "rewards" && flavor.RewardsView && (
-          <flavor.RewardsView rewards={rewards} log={log} />
+          <flavor.RewardsView rewards={rewards} log={log} updateReward={updateReward} />
         )}
 
         {view === "settings" && (
