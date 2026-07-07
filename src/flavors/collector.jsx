@@ -288,18 +288,82 @@ const VARIANT_FILTERS = [
   ["lucky", "⚡ Lucky"],
 ];
 
+/* ---- dex completion: every size × luster × strength combo ---- */
+const SIZE_LIST = SIZES.map(([s]) => s);
+const LUSTER_LIST = LUSTERS.map(([l]) => l);
+const STRENGTH_LIST = STRENGTHS.map(([s]) => s);
+const TOTAL_COMBOS = SIZE_LIST.length * LUSTER_LIST.length * STRENGTH_LIST.length;
+const SIZE_RANK = Object.fromEntries(SIZE_LIST.map((s, i) => [s, i]));
+const rarityRank = (d) =>
+  d.shiny && d.shadow ? 4 : d.shiny ? 3 : d.shadow ? 2 : d.lucky ? 1 : 0;
+
+function DexProgress({ mine }) {
+  const combos = new Set(
+    mine.map((r) => `${r.data.size}|${r.data.luster}|${r.data.strength}`)
+  );
+  const cellCount = (size, luster) =>
+    mine.filter((r) => r.data.size === size && r.data.luster === luster).length;
+  const strengthsCaught = new Set(mine.map((r) => r.data.strength)).size;
+  const pct = Math.round((combos.size / TOTAL_COMBOS) * 100);
+  return (
+    <div className="le-panel le-dexprog">
+      <div className="le-dexprog-head">
+        <span>Dex completion</span>
+        <span className="le-mono">
+          {combos.size} / {TOTAL_COMBOS} · {pct}%
+        </span>
+      </div>
+      <div className="le-dexprog-bar">
+        <div style={{ width: `${Math.max(1, pct)}%` }} />
+      </div>
+      <div className="le-dexgrid">
+        <span className="le-dexgrid-h" />
+        {LUSTER_LIST.map((l) => (
+          <span key={l} className="le-dexgrid-h">
+            {l.slice(0, 3)}
+          </span>
+        ))}
+        {SIZE_LIST.map((s) => [
+          <span key={s} className="le-dexgrid-rowlabel">
+            {s}
+          </span>,
+          ...LUSTER_LIST.map((l) => {
+            const n = cellCount(s, l);
+            return (
+              <span
+                key={`${s}-${l}`}
+                className={`le-dexgrid-cell ${n > 0 ? "got" : ""}`}
+                title={`${s} · ${l}: ${n} caught`}
+              >
+                {n > 0 ? n : ""}
+              </span>
+            );
+          }),
+        ])}
+      </div>
+      <div className="le-fineprint" style={{ marginTop: 8 }}>
+        Grid: sizes × lusters (count of each caught) · strengths found{" "}
+        {strengthsCaught}/{STRENGTH_LIST.length}
+      </div>
+    </div>
+  );
+}
+
 function RewardsView({ rewards, updateReward }) {
   const [openId, setOpenId] = useState(null);
   const [fVariant, setFVariant] = useState("all");
   const [fSize, setFSize] = useState("all");
   const [fLuster, setFLuster] = useState("all");
   const [fStrength, setFStrength] = useState("all");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("newest");
   const mine = rewards.filter((r) => r.flavorId === "collector");
   const shinies = mine.filter((r) => r.data.shiny).length;
   const shadows = mine.filter((r) => r.data.shadow).length;
   const open = mine.find((r) => r.id === openId);
   const luckyIn = LUCKY_EVERY - (mine.length % LUCKY_EVERY);
 
+  const needle = q.trim().toLowerCase();
   const filtered = mine.filter(
     (r) =>
       (fVariant === "all" ||
@@ -310,10 +374,28 @@ function RewardsView({ rewards, updateReward }) {
           : r.data.lucky)) &&
       (fSize === "all" || r.data.size === fSize) &&
       (fLuster === "all" || r.data.luster === fLuster) &&
-      (fStrength === "all" || r.data.strength === fStrength)
+      (fStrength === "all" || r.data.strength === fStrength) &&
+      (!needle ||
+        (r.name || "").toLowerCase().includes(needle) ||
+        r.taskTitle.toLowerCase().includes(needle))
+  );
+  const sorted = [...filtered].sort((a, b) =>
+    sort === "oldest"
+      ? a.at - b.at
+      : sort === "size"
+      ? SIZE_RANK[b.data.size] - SIZE_RANK[a.data.size] || b.at - a.at
+      : sort === "rarity"
+      ? rarityRank(b.data) - rarityRank(a.data) || b.at - a.at
+      : sort === "name"
+      ? (a.name || "Forretress").localeCompare(b.name || "Forretress")
+      : b.at - a.at // newest
   );
   const filtering =
-    fVariant !== "all" || fSize !== "all" || fLuster !== "all" || fStrength !== "all";
+    fVariant !== "all" ||
+    fSize !== "all" ||
+    fLuster !== "all" ||
+    fStrength !== "all" ||
+    !!needle;
 
   return (
     <>
@@ -322,8 +404,24 @@ function RewardsView({ rewards, updateReward }) {
         {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow — tap one for
         its card. ⚡ {luckyIn === 1 ? "Next catch is a lucky roll!" : `Lucky roll in ${luckyIn} catches.`}
       </p>
+      {mine.length > 0 && <DexProgress mine={mine} />}
       {mine.length > 0 && (
         <div className="le-dex-filters">
+          <div className="le-dex-filter-row two">
+            <input
+              className="le-input le-search"
+              placeholder="Search names…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select className="le-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="size">Biggest first</option>
+              <option value="rarity">Rarest first</option>
+              <option value="name">By name</option>
+            </select>
+          </div>
           <div className="le-dex-filter-row">
             {VARIANT_FILTERS.map(([id, label]) => (
               <button
@@ -372,7 +470,7 @@ function RewardsView({ rewards, updateReward }) {
         <div className="le-empty">Nothing matches those filters.</div>
       )}
       <div className="le-dex">
-        {filtered.map((r) => (
+        {sorted.map((r) => (
           <button
             key={r.id}
             className={`le-dex-cell ${r.data.shiny ? "shiny" : ""}`}

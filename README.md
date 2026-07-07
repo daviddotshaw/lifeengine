@@ -11,9 +11,12 @@ Vite + React 18, `vite-plugin-pwa` (Workbox service worker, offline-first, insta
 ```bash
 npm install
 npm run dev        # dev server
+npm run test       # unit tests (streak/date/freeze logic in src/logic.js)
 npm run build      # production build → dist/
 npm run preview    # serve the production build locally
 ```
+
+Tests also run in CI before every deploy.
 
 A prebuilt `dist/` is included in this zip — you can deploy it as-is.
 
@@ -44,7 +47,7 @@ The workflow automatically sets the Vite base path to `/<repo>/`, so no code cha
 A flavor re-skins the app (CSS palette) and defines its reward system. Users pick one in **Settings → Style**; the choice is per device, like everything else. Built in:
 
 - **Classic** — the original look, no reward layer (confetti and haptics still fire).
-- **Collector** — every completed task generates a *Forretress* with weighted random stats (size, weight, luster, strength — bell-curved toward average), a 1/4096 shiny chance and a 1/100 shadow chance. Every 11th catch is a **⚡ lucky roll** with boosted odds (shiny 1/10, shadow 1/4), which brings a shiny to roughly every 3 weeks and a shadow shiny to roughly every 3 months at ~5 tasks/day. Browse them in the **Collection** tab — filter by variant (shiny/shadow/lucky), size, luster or strength, and tap one for a full-screen trading-card view (holo frame for shinies, dark frame for shadows) where it can be given a name. The art is loaded from `public/art/forretress-{normal,shiny,shadow,shadow-shiny}.png` (hand-drawn, transparent background — see `public/art/README.txt`); any missing file falls back to the built-in procedural SVG.
+- **Collector** — every completed task generates a *Forretress* with weighted random stats (size, weight, luster, strength — bell-curved toward average), a 1/4096 shiny chance and a 1/100 shadow chance. Every 11th catch is a **⚡ lucky roll** with boosted odds (shiny 1/10, shadow 1/4), which brings a shiny to roughly every 3 weeks and a shadow shiny to roughly every 3 months at ~5 tasks/day. Browse them in the **Collection** tab — a **Dex completion** panel tracks every size × luster × strength combination caught (140 total), and the gallery supports name search, sorting (newest/oldest/biggest/rarest/name) and filters by variant (shiny/shadow/lucky), size, luster or strength. Tap a creature for a full-screen trading-card view (holo frame for shinies, dark frame for shadows) where it can be given a name. The art is loaded from `public/art/forretress-{normal,shiny,shadow,shadow-shiny}.png` (hand-drawn, transparent background — see `public/art/README.txt`); any missing file falls back to the built-in procedural SVG.
 - **Sunshine** — pretty colours, a gold star per completion, and colour-coded dot boards (one dot per completion, coloured by task group) in the **Stars** tab.
 
 Adding a flavor mirrors adding a mentor: create one module in `src/flavors/` exporting `{ id, name, glyph, tagline, palette, confettiColors, reward, RewardsView }` and register it in `src/flavors/index.js`. Core components read only that interface.
@@ -71,6 +74,10 @@ Completing a task fires a confetti burst (dependency-free, respects `prefers-red
 Missing a day normally resets the streak. Freeze tokens (🧊, shown next to the streak metric) soften that: when a past day would break the chain, tokens are spent automatically — one per missed day — but only if the whole gap can be covered and there's a streak behind it, so tokens are never wasted on an already-dead streak. Today is never frozen; the streak always survives until the day ends.
 
 You start with 1 token, earn another at every 7-day streak milestone, and can hold at most 3. Frozen days appear as 🧊 in the weekly chart. Entirely local logic — works offline like everything else.
+
+## Backups
+
+All data lives in the device's IndexedDB (the app requests persistent storage so the browser won't evict it). **Settings → Your data → Export backup** downloads a JSON file with everything — tasks, history, XP, freezes, rewards, settings; **Import backup…** restores it (replacing the device's current data), which is also how you move to a new phone. The file includes the API key if one is saved, so treat it as private.
 
 ## Installing full screen
 

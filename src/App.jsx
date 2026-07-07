@@ -14,88 +14,17 @@ import {
 import { fetchQuota } from "./ai.js";
 import { sampleOffline, fetchAiSuggestions } from "./suggestions.js";
 
-/* ---------------- date & period helpers ---------------- */
-const dayKey = (ts) => {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
-};
-const todayKey = () => dayKey(Date.now());
-const daysAgoKey = (n) => dayKey(Date.now() - n * 86400000);
-const weekdayShort = (n) =>
-  new Date(Date.now() - n * 86400000).toLocaleDateString(undefined, {
-    weekday: "short",
-  });
-
-const isoWeekKey = (ts) => {
-  const d = new Date(ts);
-  const th = new Date(d);
-  th.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 3); // Thursday of this week
-  const year = th.getFullYear();
-  const jan4 = new Date(year, 0, 4);
-  const week =
-    1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
-  return `${year}-W${week}`;
-};
-const monthKey = (ts) => {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${d.getMonth() + 1}`;
-};
-/** Current period key for a repeat cadence; null for one-off tasks. */
-const periodKey = (repeat, ts = Date.now()) =>
-  repeat === "daily"
-    ? dayKey(ts)
-    : repeat === "weekly"
-    ? isoWeekKey(ts)
-    : repeat === "monthly"
-    ? monthKey(ts)
-    : null;
-
-const REPEATS = [
-  { id: null, label: "Once" },
-  { id: "daily", label: "Daily" },
-  { id: "weekly", label: "Weekly" },
-  { id: "monthly", label: "Monthly" },
-];
-
-/* ---------------- streak freezes ---------------- */
-/* Tokens auto-spent to bridge missed days so the streak survives.
-   One is earned at every 7-day streak milestone, capped at FREEZE_CAP. */
-const FREEZE_CAP = 3;
-
-/* ---------------- derived metrics ---------------- */
-function computeStreak(log, frozenDays = []) {
-  const days = new Set(log.map((e) => dayKey(e.completedAt)));
-  frozenDays.forEach((d) => days.add(d));
-  let streak = 0;
-  let i = days.has(todayKey()) ? 0 : 1; // streak survives until today ends
-  if (i === 1 && !days.has(daysAgoKey(1))) return 0;
-  for (; ; i++) {
-    if (days.has(daysAgoKey(i))) streak++;
-    else break;
-  }
-  return streak;
-}
-function computeVelocity(log) {
-  const today = log.filter((e) => dayKey(e.completedAt) === todayKey()).length;
-  const week = log.filter((e) => e.completedAt > Date.now() - 7 * 86400000).length;
-  return { today, avg: Math.round((week / 7) * 10) / 10 };
-}
-function weekSeries(log, frozenDays = []) {
-  const out = [];
-  for (let n = 6; n >= 0; n--) {
-    const key = daysAgoKey(n);
-    const entries = log.filter((e) => dayKey(e.completedAt) === key);
-    out.push({
-      label: n === 0 ? "Today" : weekdayShort(n),
-      count: entries.length,
-      xp: entries.reduce((s, e) => s + e.xp, 0),
-      frozen: frozenDays.includes(key),
-    });
-  }
-  return out;
-}
+import {
+  dayKey,
+  todayKey,
+  periodKey,
+  REPEATS,
+  FREEZE_CAP,
+  planFreezeSpend,
+  computeStreak,
+  computeVelocity,
+  weekSeries,
+} from "./logic.js";
 
 /* ============================================================ */
 export default function App() {
@@ -113,6 +42,9 @@ export default function App() {
   const [notifDenied, setNotifDenied] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushNote, setPushNote] = useState("");
+  const [pendingImport, setPendingImport] = useState(null); // parsed backup awaiting confirm
+  const [importNote, setImportNote] = useState("");
+  const importFileRef = useRef(null);
   const [defaultsNote, setDefaultsNote] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [quota, setQuota] = useState(null); // {date, mentorId, text}
@@ -242,20 +174,8 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!ready) return;
-    const days = new Set(log.map((e) => dayKey(e.completedAt)));
-    frozenDays.forEach((d) => days.add(d));
-    if (days.size === 0) return;
-    const missing = [];
-    let anchored = false;
-    for (let i = 1; missing.length <= freezes; i++) {
-      const key = daysAgoKey(i);
-      if (days.has(key)) {
-        anchored = true;
-        break;
-      }
-      missing.push(key);
-    }
-    if (anchored && missing.length > 0 && missing.length <= freezes) {
+    const missing = planFreezeSpend(log, frozenDays, freezes);
+    if (missing.length > 0) {
       setFreezes((f) => f - missing.length);
       setFrozenDays((fd) => [...fd, ...missing]);
     }
@@ -269,6 +189,11 @@ export default function App() {
       setFreezes((f) => Math.min(FREEZE_CAP, f + 1));
     }
   }, [ready, streak, freezeEarnedDays]);
+
+  /* Ask the browser not to evict our IndexedDB under storage pressure. */
+  useEffect(() => {
+    navigator.storage?.persist?.().catch(() => {});
+  }, []);
 
   /* Apply the flavor palette at the document root so <body> and the PWA
      theme-color follow it too. */
@@ -562,6 +487,52 @@ export default function App() {
     }
     setNotifDenied(false);
     setReminder((r) => ({ ...r, enabled: true }));
+  };
+
+  /* ---------------- backup: export / import ---------------- */
+  const exportData = () => {
+    const payload = {
+      app: "lifeengine-backup",
+      exportedAt: new Date().toISOString(),
+      state: {
+        tasks, log, xp, mentorId, quota, apiKey,
+        freezes, frozenDays, freezeEarnedDays,
+        flavorId, rewards, reminder, lastReminded, pushEnabled,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `lifeengine-backup-${todayKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleImportFile = async (e) => {
+    setImportNote("");
+    setPendingImport(null);
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-choosing the same file
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      /* accept the export wrapper or a raw state object */
+      const state = parsed.app === "lifeengine-backup" ? parsed.state : parsed;
+      if (!state || !Array.isArray(state.tasks) || !Array.isArray(state.log))
+        throw new Error("shape");
+      setPendingImport({ state, exportedAt: parsed.exportedAt || null });
+    } catch {
+      setImportNote("That file doesn't look like a LifeEngine backup.");
+    }
+  };
+
+  const applyImport = async () => {
+    /* write straight to storage and reload so the normal load path
+       (with its migration defaults) picks everything up */
+    await kvSet(STATE_KEY, JSON.stringify(pendingImport.state));
+    window.location.reload();
   };
 
   const togglePush = async () => {
@@ -1111,6 +1082,58 @@ export default function App() {
                   Add default tasks
                 </button>
                 {defaultsNote && <p className="le-fineprint" style={{ alignSelf: "center" }}>{defaultsNote}</p>}
+              </div>
+            </div>
+
+            <div className="le-settings-section">
+              <h2 className="le-h2" style={{ marginBottom: 4 }}>Your data</h2>
+              <p className="le-sub">
+                Everything lives only on this device. Export a backup before switching
+                phones or clearing the browser — it restores tasks, history, XP,
+                streak freezes and the whole collection.
+              </p>
+              <div className="le-add">
+                <div className="le-key-row">
+                  <button className="le-btn" onClick={exportData}>
+                    Export backup
+                  </button>
+                  <button className="le-btn" onClick={() => importFileRef.current?.click()}>
+                    Import backup…
+                  </button>
+                </div>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json,application/json"
+                  style={{ display: "none" }}
+                  onChange={handleImportFile}
+                />
+                {pendingImport && (
+                  <>
+                    <p className="le-fineprint">
+                      Backup{pendingImport.exportedAt
+                        ? ` from ${new Date(pendingImport.exportedAt).toLocaleString()}`
+                        : ""}{" "}
+                      with {pendingImport.state.tasks.length} tasks,{" "}
+                      {pendingImport.state.log.length} completions and{" "}
+                      {(pendingImport.state.rewards || []).length} rewards. Importing
+                      replaces everything currently on this device.
+                    </p>
+                    <div className="le-key-row">
+                      <button className="le-btn danger" onClick={applyImport}>
+                        Replace &amp; restore
+                      </button>
+                      <button className="le-btn" onClick={() => setPendingImport(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+                {importNote && <p className="le-fineprint">{importNote}</p>}
+                <p className="le-fineprint">
+                  The backup file includes your API key if one is saved — keep it
+                  private.
+                </p>
               </div>
             </div>
 

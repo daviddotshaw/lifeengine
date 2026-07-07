@@ -289,6 +289,40 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 .le-dex-filters { display: grid; gap: 6px; margin-bottom: 10px; }
 .le-dex-filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .le-dex-filter-row.selects { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.le-dex-filter-row.two { grid-template-columns: 1.4fr 1fr; }
+.le-input.le-search { font-size: 12.5px; padding: 7px 10px; }
+
+/* dex completion panel */
+.le-dexprog { margin-bottom: 12px; padding: 13px 14px; }
+.le-dexprog-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12.5px; font-weight: 700; margin-bottom: 7px;
+}
+.le-dexprog-head .le-mono { font-size: 11.5px; color: var(--le-muted); }
+.le-dexprog-bar {
+  height: 8px; border-radius: 999px; background: var(--le-bg);
+  border: 1px solid var(--le-line); overflow: hidden; margin-bottom: 10px;
+}
+.le-dexprog-bar div { height: 100%; background: var(--le-accent); border-radius: 999px; transition: width .4s ease; }
+.le-dexgrid {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
+  gap: 3px; align-items: center;
+}
+.le-dexgrid-h {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--le-muted); text-align: center; font-weight: 700;
+}
+.le-dexgrid-rowlabel { font-size: 10.5px; color: var(--le-muted); font-weight: 600; }
+.le-dexgrid-cell {
+  height: 20px; border-radius: 6px; background: var(--le-bg);
+  border: 1px solid var(--le-line);
+  display: grid; place-items: center;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--le-muted);
+}
+.le-dexgrid-cell.got {
+  background: var(--le-accent-soft); border-color: var(--le-accent);
+  color: var(--le-accent); font-weight: 600;
+}
 .le-select {
   font: inherit; font-size: 11.5px; font-weight: 600; padding: 7px 4px;
   border-radius: 9px; border: 1px solid var(--le-line);
