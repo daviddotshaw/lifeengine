@@ -1,7 +1,9 @@
 /* ------------------------------------------------------------
-   Collector flavor: every completed task generates a Forretress
-   with weighted random stats. Original procedural SVG art — no
-   third-party sprites. Stats are pure collection flavour.
+   Collector flavor: every completed task catches a Pokémon
+   (Pineco / Forretress / Mega Forretress) with weighted random
+   stats and independent shiny/shadow/nuclear rarity flags.
+   Hand-drawn art in public/art/, one file per species × variant
+   combo — falls back to procedural SVG if a file is missing.
    Tapping one in the gallery opens a full-screen trading card.
    ------------------------------------------------------------ */
 import { useState } from "react";
@@ -17,68 +19,86 @@ function pick(table) {
   return table[table.length - 1][0];
 }
 
+const SPECIES = [
+  ["forretress", 80],
+  ["pineco", 10],
+  ["mega_forretress", 10],
+];
+const SPECIES_INFO = {
+  pineco: { name: "Pineco", filePrefix: "Pineco" },
+  forretress: { name: "Forretress", filePrefix: "Forretress" },
+  mega_forretress: { name: "Mega Forretress", filePrefix: "MegaForretress" },
+};
+const speciesName = (d) => SPECIES_INFO[d.species]?.name || "Forretress";
+
 const SIZES = [
-  ["Tiny", 2],
+  ["Tiny", 5],
   ["XS", 10],
   ["S", 20],
-  ["Average", 36],
+  ["Average", 30],
   ["L", 20],
   ["XL", 10],
-  ["Huge", 2],
+  ["Huge", 5],
 ];
 const WEIGHTS = [
-  [1, 8],
-  [2, 22],
+  [1, 10],
+  [2, 20],
   [3, 40],
-  [4, 22],
-  [5, 8],
+  [4, 20],
+  [5, 10],
 ];
 const LUSTERS = [
-  ["porous", 40],
+  ["porous", 30],
   ["silky", 30],
-  ["pearly", 20],
-  ["adamant", 10],
+  ["pearly", 25],
+  ["adamant", 15],
 ];
 const STRENGTHS = [
-  ["weakest", 8],
-  ["weak", 22],
-  ["average", 40],
-  ["strong", 22],
-  ["strongest", 8],
+  ["weakest", 10],
+  ["weak", 20],
+  ["average", 30],
+  ["strong", 20],
+  ["strongest", 10],
 ];
 
 const SIZE_SCALE = { Tiny: 0.5, XS: 0.65, S: 0.8, Average: 0.92, L: 1.05, XL: 1.2, Huge: 1.4 };
 const SPIKES = { weakest: 5, weak: 6, average: 7, strong: 8, strongest: 10 };
 
-/* Lucky rolls: every LUCKY_EVERY-th catch uses boosted rarity odds.
-   At ~5 tasks/day that works out to a shiny roughly every 3 weeks and
-   a shadow shiny roughly every 3 months (vs ~224 years unboosted). */
+/* Lucky rolls: every LUCKY_EVERY-th catch uses boosted rarity odds on
+   all three independent flags. Shadow/nuclear share the same base rate
+   so they share the same boost; shiny keeps its own (much larger) boost
+   since its base rate is far rarer. At ~5 tasks/day: shiny roughly every
+   3 weeks, a shadow+shiny (or nuclear+shiny) double roughly every 3
+   months, and the full shiny+shadow+nuclear triple roughly once a year. */
 const LUCKY_EVERY = 11;
-const ODDS = { shiny: 1 / 4096, shadow: 1 / 100 };
-const LUCKY_ODDS = { shiny: 1 / 10, shadow: 1 / 4 };
+const ODDS = { shiny: 1 / 4096, shadow: 1 / 100, nuclear: 1 / 100 };
+const LUCKY_ODDS = { shiny: 1 / 10, shadow: 1 / 4, nuclear: 1 / 4 };
 
 /** ctx.count = how many collector rewards exist already. */
 function generate(task, ctx = {}) {
   const lucky = ((ctx.count || 0) + 1) % LUCKY_EVERY === 0;
   const odds = lucky ? LUCKY_ODDS : ODDS;
   return {
+    species: pick(SPECIES),
     size: pick(SIZES),
     weight: pick(WEIGHTS),
     luster: pick(LUSTERS),
     strength: pick(STRENGTHS),
     shiny: Math.random() < odds.shiny,
     shadow: Math.random() < odds.shadow,
+    nuclear: Math.random() < odds.nuclear,
     lucky,
   };
 }
 
-/* ---- art: a spiky armoured orb, colours driven by the stats ---- */
-function ForretressArt({ d, px = 84 }) {
+/* ---- procedural fallback: a spiky armoured orb, colours driven by
+   the rarity flags — used only if a hand-drawn file is missing ---- */
+function CreatureArt({ d, px = 84 }) {
   const scale = SIZE_SCALE[d.size] || 0.92;
-  const body = d.shiny ? "#D8A93A" : d.shadow ? "#2A2233" : "#8B7BB5";
-  const rim = d.shiny ? "#9C7414" : d.shadow ? "#120D1C" : "#5E5480";
+  const body = d.shiny ? "#D8A93A" : d.shadow ? "#2A2233" : d.nuclear ? "#9DB017" : "#8B7BB5";
+  const rim = d.shiny ? "#9C7414" : d.shadow ? "#120D1C" : d.nuclear ? "#5C6B0B" : "#5E5480";
   const spikeN = SPIKES[d.strength] || 7;
-  const uid = `${d.size}-${d.luster}-${d.shiny}-${d.shadow}-${spikeN}`;
+  const uid = `${d.size}-${d.luster}-${d.shiny}-${d.shadow}-${d.nuclear}-${spikeN}`;
   const R = 30 * scale;
 
   const spikes = [];
@@ -96,7 +116,7 @@ function ForretressArt({ d, px = 84 }) {
   }
 
   return (
-    <svg viewBox="0 0 100 100" width={px} height={px} role="img" aria-label="Forretress">
+    <svg viewBox="0 0 100 100" width={px} height={px} role="img" aria-label={speciesName(d)}>
       <defs>
         <radialGradient id={`pearl-${uid}`} cx="38%" cy="32%" r="75%">
           <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
@@ -110,6 +130,9 @@ function ForretressArt({ d, px = 84 }) {
       </defs>
       {d.shadow && (
         <circle cx="50" cy="50" r={R + 15 * scale} fill="none" stroke="#7A3FA8" strokeOpacity="0.5" strokeWidth="3" strokeDasharray="5 7" />
+      )}
+      {d.nuclear && (
+        <circle cx="50" cy="50" r={R + (d.shadow ? 20 : 15) * scale} fill="none" stroke="#B9D100" strokeOpacity="0.6" strokeWidth="3" strokeDasharray="2 5" />
       )}
       {spikes}
       <circle
@@ -155,20 +178,29 @@ function ForretressArt({ d, px = 84 }) {
   );
 }
 
-/* Hand-drawn art from public/art/ when present (normal/shiny/shadow
-   variants); falls back to the procedural SVG if a file is missing. */
-function ForretressImg({ d, px = 84 }) {
+/* File name convention, matching public/art/ exactly:
+   {FilePrefix}_{Shiny_Shadow_Nuclear in that order, or Standard}.png */
+function variantSuffix(d) {
+  const parts = [];
+  if (d.shiny) parts.push("Shiny");
+  if (d.shadow) parts.push("Shadow");
+  if (d.nuclear) parts.push("Nuclear");
+  return parts.length ? parts.join("_") : "Standard";
+}
+
+/* Hand-drawn art from public/art/, one file per species × variant
+   combo; falls back to the procedural SVG if a file is missing. */
+function CreatureImg({ d, px = 84 }) {
   const [failed, setFailed] = useState(false);
   const scale = SIZE_SCALE[d.size] || 0.92;
-  const variant =
-    d.shiny && d.shadow ? "shadow-shiny" : d.shiny ? "shiny" : d.shadow ? "shadow" : "normal";
-  if (failed) return <ForretressArt d={d} px={px} />;
+  if (failed) return <CreatureArt d={d} px={px} />;
+  const prefix = SPECIES_INFO[d.species]?.filePrefix || "Forretress";
   return (
     <img
-      src={`${import.meta.env.BASE_URL}art/forretress-${variant}.png`}
+      src={`${import.meta.env.BASE_URL}art/${prefix}_${variantSuffix(d)}.png`}
       width={Math.round(px * scale)}
       height={Math.round(px * scale)}
-      alt="Forretress"
+      alt={speciesName(d)}
       style={{ objectFit: "contain" }}
       onError={() => setFailed(true)}
     />
@@ -178,14 +210,28 @@ function ForretressImg({ d, px = 84 }) {
 const statLine = (d) =>
   `${d.size} · wt ${d.weight} · ${d.luster} · ${d.strength}`;
 
+/** Emoji prefix for the three independent rarity flags, in a stable order. */
+const badges = (d) =>
+  `${d.shiny ? "🌟 " : ""}${d.shadow ? "🌑 " : ""}${d.nuclear ? "☢️ " : ""}`;
+
+/** Rarity footer text, e.g. "★☾☢ SHINY SHADOW NUCLEAR" or "● COMMON". */
+function rarityLabel(d) {
+  const tags = [];
+  if (d.shiny) tags.push(["★", "SHINY"]);
+  if (d.shadow) tags.push(["☾", "SHADOW"]);
+  if (d.nuclear) tags.push(["☢", "NUCLEAR"]);
+  if (tags.length === 0) return "● COMMON";
+  return `${tags.map((t) => t[0]).join("")} ${tags.map((t) => t[1]).join(" ")}`;
+}
+
 function Card({ reward }) {
   const d = reward.data;
   return (
     <div className="le-reward-card">
-      <ForretressImg d={d} px={110} />
+      <CreatureImg d={d} px={110} />
       <div className="le-reward-name">
-        {d.shiny && "🌟 Shiny "}
-        {d.shadow && "🌑 Shadow "}Forretress!
+        {badges(d)}
+        {speciesName(d)}!
       </div>
       <div className="le-reward-stats">{statLine(d)}</div>
       {d.lucky && <div className="le-reward-lucky">⚡ Lucky roll — boosted odds!</div>}
@@ -193,39 +239,36 @@ function Card({ reward }) {
   );
 }
 
-/* Full-screen trading-card view of one creature. */
+/* Full-screen trading-card view of one creature. Frame background is
+   built from all active rarity classes at once (CSS specificity picks
+   the matching compound rule), so any of the 8 combos gets its own look. */
 function FullCard({ reward, onClose, onRename }) {
   const [naming, setNaming] = useState(false);
   const [draft, setDraft] = useState(reward.name || "");
   const d = reward.data;
-  const frame = d.shiny ? "shiny" : d.shadow ? "shadow" : "";
-  const rarity =
-    d.shiny && d.shadow
-      ? "★☾ SHADOW SHINY"
-      : d.shiny
-      ? "★ SHINY"
-      : d.shadow
-      ? "☾ SHADOW"
-      : "● COMMON";
+  const name = speciesName(d);
+  const frameClass = [d.shiny && "shiny", d.shadow && "shadow", d.nuclear && "nuclear"]
+    .filter(Boolean)
+    .join(" ");
+  const rarity = rarityLabel(d);
   const saveName = () => {
     onRename(draft.trim());
     setNaming(false);
   };
   return (
     <div className="le-tcard-pop" onClick={onClose}>
-      <div className={`le-tcard ${frame}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`le-tcard ${frameClass}`} onClick={(e) => e.stopPropagation()}>
         <div className="le-tcard-head">
           <span className="le-tcard-name">
-            {d.shiny && "🌟 "}
-            {d.shadow && "🌑 "}
-            {reward.name || "Forretress"}
+            {badges(d)}
+            {reward.name || name}
             <button
               className="le-tcard-rename"
               onClick={() => {
                 setDraft(reward.name || "");
                 setNaming((n) => !n);
               }}
-              aria-label="Name this Forretress"
+              aria-label={`Name this ${name}`}
             >
               ✎
             </button>
@@ -249,12 +292,13 @@ function FullCard({ reward, onClose, onRename }) {
           </div>
         )}
         <div className="le-tcard-art">
-          <ForretressImg d={d} px={175} />
+          <CreatureImg d={d} px={175} />
         </div>
         <div className="le-tcard-type">
           {d.size} Bagworm Pokémon · {d.luster} shell
         </div>
         <div className="le-tcard-rows">
+          <div className="le-tcard-row"><span>Species</span><b>{name}</b></div>
           <div className="le-tcard-row"><span>Size</span><b>{d.size}</b></div>
           <div className="le-tcard-row"><span>Weight</span><b>{d.weight} / 5</b></div>
           <div className="le-tcard-row"><span>Luster</span><b>{d.luster}</b></div>
@@ -285,17 +329,20 @@ const VARIANT_FILTERS = [
   ["all", "All"],
   ["shiny", "🌟 Shiny"],
   ["shadow", "🌑 Shadow"],
+  ["nuclear", "☢️ Nuclear"],
   ["lucky", "⚡ Lucky"],
 ];
 
-/* ---- dex completion: every size × luster × strength combo ---- */
+/* ---- dex completion: every size × luster × strength combo, across
+   any species (species has its own filter/count instead) ---- */
 const SIZE_LIST = SIZES.map(([s]) => s);
 const LUSTER_LIST = LUSTERS.map(([l]) => l);
 const STRENGTH_LIST = STRENGTHS.map(([s]) => s);
 const TOTAL_COMBOS = SIZE_LIST.length * LUSTER_LIST.length * STRENGTH_LIST.length;
 const SIZE_RANK = Object.fromEntries(SIZE_LIST.map((s, i) => [s, i]));
-const rarityRank = (d) =>
-  d.shiny && d.shadow ? 4 : d.shiny ? 3 : d.shadow ? 2 : d.lucky ? 1 : 0;
+/** Rough "how special" ordering for the Rarest-first sort — not a strict
+    probability ranking, just a sensible browsing order. */
+const rarityRank = (d) => (d.shiny ? 2 : 0) + (d.shadow ? 1 : 0) + (d.nuclear ? 1 : 0);
 
 function DexProgress({ mine }) {
   const combos = new Set(
@@ -342,7 +389,7 @@ function DexProgress({ mine }) {
         ])}
       </div>
       <div className="le-fineprint" style={{ marginTop: 8 }}>
-        Grid: sizes × lusters (count of each caught) · strengths found{" "}
+        Grid: sizes × lusters (count of each caught, any species) · strengths found{" "}
         {strengthsCaught}/{STRENGTH_LIST.length}
       </div>
     </div>
@@ -352,6 +399,7 @@ function DexProgress({ mine }) {
 function RewardsView({ rewards, updateReward }) {
   const [openId, setOpenId] = useState(null);
   const [fVariant, setFVariant] = useState("all");
+  const [fSpecies, setFSpecies] = useState("all");
   const [fSize, setFSize] = useState("all");
   const [fLuster, setFLuster] = useState("all");
   const [fStrength, setFStrength] = useState("all");
@@ -360,6 +408,7 @@ function RewardsView({ rewards, updateReward }) {
   const mine = rewards.filter((r) => r.flavorId === "collector");
   const shinies = mine.filter((r) => r.data.shiny).length;
   const shadows = mine.filter((r) => r.data.shadow).length;
+  const nuclears = mine.filter((r) => r.data.nuclear).length;
   const open = mine.find((r) => r.id === openId);
   const luckyIn = LUCKY_EVERY - (mine.length % LUCKY_EVERY);
 
@@ -371,7 +420,10 @@ function RewardsView({ rewards, updateReward }) {
           ? r.data.shiny
           : fVariant === "shadow"
           ? r.data.shadow
+          : fVariant === "nuclear"
+          ? r.data.nuclear
           : r.data.lucky)) &&
+      (fSpecies === "all" || r.data.species === fSpecies) &&
       (fSize === "all" || r.data.size === fSize) &&
       (fLuster === "all" || r.data.luster === fLuster) &&
       (fStrength === "all" || r.data.strength === fStrength) &&
@@ -387,11 +439,12 @@ function RewardsView({ rewards, updateReward }) {
       : sort === "rarity"
       ? rarityRank(b.data) - rarityRank(a.data) || b.at - a.at
       : sort === "name"
-      ? (a.name || "Forretress").localeCompare(b.name || "Forretress")
+      ? (a.name || speciesName(a.data)).localeCompare(b.name || speciesName(b.data))
       : b.at - a.at // newest
   );
   const filtering =
     fVariant !== "all" ||
+    fSpecies !== "all" ||
     fSize !== "all" ||
     fLuster !== "all" ||
     fStrength !== "all" ||
@@ -401,8 +454,9 @@ function RewardsView({ rewards, updateReward }) {
     <>
       <h2 className="le-h2" style={{ marginBottom: 4 }}>Collection</h2>
       <p className="le-sub">
-        {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow — tap one for
-        its card. ⚡ {luckyIn === 1 ? "Next catch is a lucky roll!" : `Lucky roll in ${luckyIn} catches.`}
+        {mine.length} caught · 🌟 {shinies} shiny · 🌑 {shadows} shadow · ☢️ {nuclears}{" "}
+        nuclear — tap one for its card. ⚡{" "}
+        {luckyIn === 1 ? "Next catch is a lucky roll!" : `Lucky roll in ${luckyIn} catches.`}
       </p>
       {mine.length > 0 && <DexProgress mine={mine} />}
       {mine.length > 0 && (
@@ -433,7 +487,13 @@ function RewardsView({ rewards, updateReward }) {
               </button>
             ))}
           </div>
-          <div className="le-dex-filter-row selects">
+          <div className="le-dex-filter-row">
+            <select className="le-select" value={fSpecies} onChange={(e) => setFSpecies(e.target.value)}>
+              <option value="all">Species: all</option>
+              {Object.entries(SPECIES_INFO).map(([id, info]) => (
+                <option key={id} value={id}>{info.name}</option>
+              ))}
+            </select>
             <select className="le-select" value={fSize} onChange={(e) => setFSize(e.target.value)}>
               <option value="all">Size: all</option>
               {SIZES.map(([s]) => (
@@ -462,7 +522,7 @@ function RewardsView({ rewards, updateReward }) {
       )}
       {mine.length === 0 && (
         <div className="le-empty">
-          Complete a task to generate your first Forretress. Every one rolls its own
+          Complete a task to catch your first Pokémon. Every one rolls its own species,
           size, weight, luster and strength.
         </div>
       )}
@@ -477,12 +537,16 @@ function RewardsView({ rewards, updateReward }) {
             onClick={() => setOpenId(r.id)}
           >
             <div className="le-dex-art">
-              <ForretressImg d={r.data} px={72} />
+              <CreatureImg d={r.data} px={72} />
             </div>
-            {r.name && <div className="le-dex-name">{r.name}</div>}
+            <div className="le-dex-species">
+              {r.name ? `${r.name} · ` : ""}
+              {speciesName(r.data)}
+            </div>
             <div className="le-dex-stats">
               {r.data.shiny && "🌟"}
               {r.data.shadow && "🌑"}
+              {r.data.nuclear && "☢️"}
               {r.data.lucky && "⚡"} {statLine(r.data)}
             </div>
             <div className="le-dex-src">{r.taskTitle}</div>
@@ -504,9 +568,9 @@ export const collector = {
   id: "collector",
   name: "Collector",
   glyph: "🛡️",
-  tagline: "Every task caught generates a Forretress.",
+  tagline: "Every task caught generates a Pokémon.",
   palette: null, // keeps the classic palette; the creatures are the colour
   confettiColors: ["#8B7BB5", "#5E5480", "#D8A93A", "#3E7C6F"],
-  reward: { noun: "Forretress", tabLabel: "Collection", generate, Card },
+  reward: { noun: "Pokémon", tabLabel: "Collection", generate, Card },
   RewardsView,
 };

@@ -320,16 +320,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 .le-dex-cell:hover { border-color: var(--le-accent); }
 .le-dex-cell.shiny { border-color: var(--le-amber); background: var(--le-amber-bg); }
 .le-dex-art { height: 104px; display: grid; place-items: center; }
-.le-dex-name {
+.le-dex-species {
   font-size: 11px; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* collection filter bar */
+/* collection filter bar — flex-wrap so any number of buttons/selects
+   (variant filters, species/size/luster/strength dropdowns) reflow
+   onto extra lines on narrow phones instead of squeezing illegibly */
 .le-dex-filters { display: grid; gap: 6px; margin-bottom: 10px; }
-.le-dex-filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.le-dex-filter-row.selects { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.le-dex-filter-row.two { grid-template-columns: 1.4fr 1fr; }
+.le-dex-filter-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.le-dex-filter-row .le-diff { flex: 1 1 64px; }
+.le-dex-filter-row .le-select { flex: 1 1 96px; }
+.le-dex-filter-row.two { flex-wrap: nowrap; }
+.le-dex-filter-row.two .le-search { flex: 1.4 1 auto; }
+.le-dex-filter-row.two .le-select { flex: 1 1 auto; }
 .le-input.le-search { font-size: 12.5px; padding: 7px 10px; }
 
 /* dex completion panel */
@@ -409,6 +414,27 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 }
 .le-tcard.shadow {
   background: linear-gradient(135deg, #3A2C4E, #151020 60%, #3A2C4E);
+  color: #E8E2F2;
+}
+.le-tcard.nuclear {
+  background: linear-gradient(135deg, #D7E600, #8FA300 55%, #D7E600);
+}
+/* compound rarity combos — 2-3 class selectors always outrank the
+   single-flag rules above regardless of source order (CSS specificity),
+   so these correctly override for any creature with multiple flags */
+.le-tcard.shiny.shadow {
+  background: linear-gradient(135deg, #4a3a66, #1c1428 55%, #6a4a8a 80%, #4a3a66);
+  color: #E8E2F2;
+}
+.le-tcard.shiny.nuclear {
+  background: linear-gradient(120deg, #f6d365, #d4ff5c 35%, #a1c4fd 65%, #f6d365);
+}
+.le-tcard.shadow.nuclear {
+  background: linear-gradient(135deg, #1c2b0a, #0d1206 60%, #1c2b0a);
+  color: #E8E2F2;
+}
+.le-tcard.shiny.shadow.nuclear {
+  background: linear-gradient(120deg, #1c1428, #2E3B0A 30%, #4a3a66 60%, #d4ff5c 80%, #1c1428);
   color: #E8E2F2;
 }
 .le-tcard-head { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 6px 8px; }
