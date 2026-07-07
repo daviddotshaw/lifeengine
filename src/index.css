@@ -51,6 +51,46 @@ html, body { margin: 0; padding: 0; background: var(--le-bg); }
 
 .le-main { padding: 8px 18px 12px; }
 
+/* ---- level bar ---- */
+.le-levelbar {
+  background: var(--le-card); border: 1px solid var(--le-line); border-radius: 14px;
+  padding: 10px 14px; margin-bottom: 12px;
+}
+.le-levelbar-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; font-weight: 700; margin-bottom: 6px;
+}
+.le-levelbar-title { font-weight: 600; color: var(--le-muted); }
+.le-levelbar-frac { font-size: 11px; color: var(--le-muted); font-weight: 600; }
+.le-levelbar-bar {
+  height: 7px; border-radius: 999px; background: var(--le-bg);
+  border: 1px solid var(--le-line); overflow: hidden;
+}
+.le-levelbar-bar div {
+  height: 100%; border-radius: 999px; background: var(--le-amber);
+  transition: width .4s ease;
+}
+/* ---- level-up banner (slides from the top; never competes with a
+   flavor's full-screen reward pop-up) ---- */
+.le-levelup-banner {
+  position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 14px; right: 14px;
+  max-width: 452px; margin: 0 auto; z-index: 9995; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--le-amber); color: #fff;
+  border-radius: 12px; padding: 10px 16px;
+  font-size: 13.5px; font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  animation: le-levelup-in .3s cubic-bezier(.2,1.4,.4,1);
+}
+.le-levelup-badge {
+  font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 13px;
+  background: rgba(255,255,255,.25); border-radius: 999px; padding: 3px 9px; flex: none;
+}
+@keyframes le-levelup-in { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .le-levelup-banner { animation: none !important; }
+}
+
 .le-strip { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .le-metric {
   background: var(--le-card); border: 1px solid var(--le-line); border-radius: 14px;
@@ -414,3 +454,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--le-accent);
 
 /* ---- settings sections ---- */
 .le-settings-section { margin-bottom: 24px; }
+
+/* ---- undo toast ---- */
+.le-undo-toast {
+  position: fixed; left: 14px; right: 14px;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  max-width: 452px; margin: 0 auto; z-index: 9990;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--le-ink); color: var(--le-bg);
+  border-radius: 12px; padding: 10px 8px 10px 16px;
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+  animation: le-toast-in .22s ease;
+}
+.le-btn-ghost.undo {
+  width: auto; height: auto; padding: 7px 14px;
+  border-color: color-mix(in srgb, var(--le-bg) 40%, transparent);
+  color: var(--le-bg); font-weight: 700;
+}
+@keyframes le-toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .le-undo-toast { animation: none !important; }
+}

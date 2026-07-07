@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { MENTORS, DIFFS, diffOf } from "./mentors.js";
+import { MENTORS, diffOf } from "./mentors.js";
 import { GROUPS, groupOf, DEFAULT_TASKS } from "./groups.js";
-import { FLAVORS, flavorOf } from "./flavors/index.js";
+import { flavorOf } from "./flavors/index.js";
 import { confetti, haptic } from "./celebrate.js";
 import { kvGet, kvSet, STATE_KEY } from "./storage.js";
 import {
@@ -18,13 +18,17 @@ import {
   dayKey,
   todayKey,
   periodKey,
-  REPEATS,
   FREEZE_CAP,
   planFreezeSpend,
   computeStreak,
   computeVelocity,
   weekSeries,
+  levelInfo,
 } from "./logic.js";
+
+import HudView from "./views/HudView.jsx";
+import AnalyticsView from "./views/AnalyticsView.jsx";
+import SettingsView from "./views/SettingsView.jsx";
 
 /* ============================================================ */
 export default function App() {
@@ -68,8 +72,14 @@ export default function App() {
   const [frozenDays, setFrozenDays] = useState([]); // dayKeys bridged by a spent token
   const [freezeEarnedDays, setFreezeEarnedDays] = useState([]); // dayKeys a milestone token was granted
   const [tick, setTick] = useState(0);
+  const [undo, setUndo] = useState(null); // { taskId, title, gain, logId, rewardId, snapshotTask, ...freeze snapshot }
+  const [levelUp, setLevelUp] = useState(null); // { level, title } transient banner
   const saveTimer = useRef(null);
   const earnTimer = useRef(null);
+  const parkTimer = useRef(null);
+  const undoTimer = useRef(null);
+  const levelUpTimer = useRef(null);
+  const prevLevelRef = useRef(null);
 
   /* mentorId "none" = no mentor: the transmission panel is hidden entirely */
   const mentor = mentorId === "none" ? null : MENTORS[mentorId] || MENTORS.dungeon_master;
@@ -81,6 +91,7 @@ export default function App() {
   const velocity = useMemo(() => computeVelocity(log), [log, tick]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const week = useMemo(() => weekSeries(log, frozenDays), [log, frozenDays, tick]);
+  const level = useMemo(() => levelInfo(xp), [xp]);
 
   /* Recurring tasks hide until their next period; done cards stay for exit anim. */
   const visibleTasks = tasks.filter(
@@ -189,6 +200,22 @@ export default function App() {
       setFreezes((f) => Math.min(FREEZE_CAP, f + 1));
     }
   }, [ready, streak, freezeEarnedDays]);
+
+  /* Celebrate level-ups. prevLevelRef starts null so loading an existing
+     save never fires a false celebration — only a level crossed during
+     this session counts. */
+  useEffect(() => {
+    if (!ready) return;
+    if (prevLevelRef.current !== null && level.level > prevLevelRef.current) {
+      setLevelUp({ level: level.level, title: level.title });
+      confetti({ colors: flavor.confettiColors, count: 140 });
+      haptic([30, 40, 30, 40, 120]);
+      clearTimeout(levelUpTimer.current);
+      levelUpTimer.current = setTimeout(() => setLevelUp(null), 3200);
+    }
+    prevLevelRef.current = level.level;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, level.level]);
 
   /* Ask the browser not to evict our IndexedDB under storage pressure. */
   useEffect(() => {
@@ -375,10 +402,18 @@ export default function App() {
     const t = tasks.find((x) => x.id === id);
     if (!t || t.done) return;
     const gain = diffOf(t.diff).xp;
+    const logId = `l${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+    /* snapshot for undo: the task exactly as it was, and freeze-token state
+       before this completion could earn/spend a token */
+    const snapshotTask = { ...t };
+    const freezesSnapshot = freezes;
+    const frozenDaysSnapshot = frozenDays;
+    const freezeEarnedDaysSnapshot = freezeEarnedDays;
+
     setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, done: true } : x)));
     setLog((l) => [
       {
-        id: `l${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        id: logId,
         title: t.title,
         diff: t.diff,
         group: groupOf(t.group).id,
@@ -394,9 +429,12 @@ export default function App() {
     haptic();
     /* tell the push server today is covered, so no evening nag */
     if (pushEnabled && pushConfigured()) pingDone().catch(() => {});
+
+    let rewardId = null;
     if (flavor.reward) {
+      rewardId = `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
       const reward = {
-        id: `r${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+        id: rewardId,
         flavorId: flavor.id,
         taskTitle: t.title,
         group: groupOf(t.group).id,
@@ -410,7 +448,9 @@ export default function App() {
       clearTimeout(earnTimer.current);
       earnTimer.current = setTimeout(() => setJustEarned(null), 2600);
     }
-    setTimeout(() => {
+
+    clearTimeout(parkTimer.current);
+    parkTimer.current = setTimeout(() => {
       if (t.repeat) {
         /* recurring: park until next period instead of deleting */
         setTasks((ts) =>
@@ -422,6 +462,48 @@ export default function App() {
         setTasks((ts) => ts.filter((x) => x.id !== id));
       }
     }, 650);
+
+    clearTimeout(undoTimer.current);
+    setUndo({
+      taskId: id,
+      title: t.title,
+      gain,
+      logId,
+      rewardId,
+      snapshotTask,
+      freezesSnapshot,
+      frozenDaysSnapshot,
+      freezeEarnedDaysSnapshot,
+    });
+    undoTimer.current = setTimeout(() => setUndo(null), 5000);
+  };
+
+  /* reverts everything completeTask did: XP, log entry, reward, freeze
+     tokens, and the task itself (re-inserting it if it was already
+     removed by the recurring/one-off park timer) */
+  const undoLast = () => {
+    if (!undo) return;
+    clearTimeout(parkTimer.current);
+    clearTimeout(undoTimer.current);
+    clearTimeout(levelUpTimer.current);
+    setLevelUp(null);
+    if (undo.rewardId) {
+      clearTimeout(earnTimer.current);
+      setJustEarned((j) => (j && j.id === undo.rewardId ? null : j));
+      setRewards((rs) => rs.filter((r) => r.id !== undo.rewardId));
+    }
+    setXp((v) => v - undo.gain);
+    setLog((l) => l.filter((e) => e.id !== undo.logId));
+    setTasks((ts) => {
+      const exists = ts.some((x) => x.id === undo.taskId);
+      return exists
+        ? ts.map((x) => (x.id === undo.taskId ? undo.snapshotTask : x))
+        : [undo.snapshotTask, ...ts];
+    });
+    setFreezes(undo.freezesSnapshot);
+    setFrozenDays(undo.frozenDaysSnapshot);
+    setFreezeEarnedDays(undo.freezeEarnedDaysSnapshot);
+    setUndo(null);
   };
 
   const removeTask = (id) => setTasks((ts) => ts.filter((x) => x.id !== id));
@@ -578,6 +660,16 @@ export default function App() {
         </div>
       )}
 
+      {/* ---------- level-up celebration ----------
+          A slim top banner rather than a full-screen modal, so it never
+          competes with a flavor's reward pop-up when both fire together. */}
+      {levelUp && (
+        <div className="le-levelup-banner" onClick={() => setLevelUp(null)}>
+          <span className="le-levelup-badge">Lv. {levelUp.level}</span>
+          <span>Level up! You're now a {levelUp.title}.</span>
+        </div>
+      )}
+
       {/* ---------- header ---------- */}
       <header className="le-head">
         <div className="le-logo">
@@ -590,592 +682,97 @@ export default function App() {
 
       <main className="le-main">
         {view === "hud" && (
-          <>
-            <section className="le-strip">
-              <Metric label="Velocity" value={velocity.today} sub={`avg ${velocity.avg}/day`} />
-              <Metric
-                label="Streak"
-                value={streak}
-                sub={`${streak === 1 ? "day" : "days"} · 🧊 ${freezes}`}
-                hot={streak >= 3}
-                title={`${freezes} freeze token${
-                  freezes === 1 ? "" : "s"
-                } — auto-spent to cover a missed day. Earn one at every 7-day streak milestone (max ${FREEZE_CAP}).`}
-              />
-              <Metric label="In deck" value={openTasks.length} sub="open tasks" />
-            </section>
-
-            {mentor && (
-              <section className="le-quota">
-                <div className="le-quota-top">
-                  <div className="le-quota-who">
-                    <span className="le-glyph">{mentor.glyph}</span>
-                    <div>
-                      <div className="le-quota-name">{mentor.name}</div>
-                      <div className="le-quota-sub">Daily transmission</div>
-                    </div>
-                  </div>
-                  <button
-                    className="le-btn-ghost"
-                    onClick={() => refreshQuota(true)}
-                    disabled={quotaLoading}
-                    aria-label="New message"
-                  >
-                    {quotaLoading ? "…" : "↻"}
-                  </button>
-                </div>
-                <p className={`le-quota-text ${quotaLoading ? "dim" : ""}`}>
-                  {quotaLoading ? "Consulting the mentor…" : quota?.text || "…"}
-                </p>
-              </section>
-            )}
-
-            <section>
-              <div className="le-deck-head">
-                <h2 className="le-h2">Active deck</h2>
-                <button className="le-btn" onClick={openAddPanel}>
-                  {adding ? "Close" : "+ Task"}
-                </button>
-              </div>
-
-              {adding && (
-                <div className="le-add">
-                  <div className="le-mode-row">
-                    <button
-                      className={`le-mode ${addMode === "custom" ? "on" : ""}`}
-                      onClick={() => setAddMode("custom")}
-                    >
-                      Custom
-                    </button>
-                    <button
-                      className={`le-mode ${addMode === "suggested" ? "on" : ""}`}
-                      onClick={() => setAddMode("suggested")}
-                    >
-                      Suggested
-                    </button>
-                  </div>
-
-                  {addMode === "custom" && (
-                    <>
-                      <input
-                        className="le-input"
-                        placeholder="What needs doing?"
-                        value={newTitle}
-                        maxLength={80}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addTask()}
-                        autoFocus
-                      />
-                      <div className="le-diff-row">
-                        {DIFFS.map((d) => (
-                          <button
-                            key={d.id}
-                            className={`le-diff ${newDiff === d.id ? "on" : ""}`}
-                            onClick={() => setNewDiff(d.id)}
-                          >
-                            {d.label} <span className="le-diff-xp">+{d.xp}</span>
-                          </button>
-                        ))}
-                      </div>
-                      <div>
-                        <div className="le-field-label">Group</div>
-                        <div className="le-group-row">
-                          {Object.values(GROUPS).map((g) => (
-                            <button
-                              key={g.id}
-                              className={`le-group-chip ${newGroup === g.id ? "on" : ""}`}
-                              style={
-                                newGroup === g.id
-                                  ? { background: g.color, borderColor: g.color }
-                                  : undefined
-                              }
-                              onClick={() => setNewGroup(g.id)}
-                            >
-                              {g.glyph} {g.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="le-field-label">Repeats</div>
-                        <div className="le-diff-row">
-                          {REPEATS.map((r) => (
-                            <button
-                              key={r.label}
-                              className={`le-diff ${newRepeat === r.id ? "on" : ""}`}
-                              onClick={() => setNewRepeat(r.id)}
-                            >
-                              {r.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        className="le-btn wide"
-                        onClick={addTask}
-                        disabled={!newTitle.trim()}
-                      >
-                        Add to deck
-                      </button>
-                    </>
-                  )}
-
-                  {addMode === "suggested" && (
-                    <>
-                      {suggestions.map((s) => (
-                        <button
-                          key={s.title}
-                          className="le-sugg"
-                          onClick={() => addSuggestion(s)}
-                        >
-                          <span className="le-sugg-plus">+</span>
-                          <span
-                            className="le-dot-swatch"
-                            style={{ background: groupOf(s.group).color }}
-                          />
-                          <span className="le-sugg-title">{s.title}</span>
-                          <span className="le-sugg-xp le-mono">
-                            +{diffOf(s.diff).xp}
-                          </span>
-                        </button>
-                      ))}
-                      {suggestions.length === 0 && !suggLoading && (
-                        <div className="le-empty">All added — shuffle for more.</div>
-                      )}
-                      {suggNote && <div className="le-fineprint">{suggNote}</div>}
-                      <div className="le-key-row">
-                        <button
-                          className="le-btn"
-                          onClick={shuffleSuggestions}
-                          disabled={suggLoading}
-                        >
-                          ↻ Shuffle
-                        </button>
-                        <button
-                          className="le-btn moss"
-                          onClick={aiSuggestions}
-                          disabled={suggLoading || !apiKey}
-                          title={apiKey ? "" : "Add an API key in Settings"}
-                        >
-                          {suggLoading ? "Thinking…" : "✨ AI ideas"}
-                        </button>
-                      </div>
-                      {!apiKey && (
-                        <p className="le-fineprint">
-                          AI ideas need an API key — add one in Settings. The
-                          shuffle list works offline.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {openTasks.length === 0 && !adding && (
-                <div className="le-empty">
-                  Deck is clear. Add a task to earn XP — your streak counts any day with
-                  at least one completion, and 🧊 freeze tokens cover missed days
-                  automatically. Recurring tasks return on their next cycle.
-                </div>
-              )}
-
-              {boards.map(({ g, items }) => (
-                <div key={g.id}>
-                  <div className="le-board-head">
-                    <span className="le-dot-swatch" style={{ background: g.color }} />
-                    {g.name}
-                    <span className="le-board-count">{items.filter((t) => !t.done).length}</span>
-                  </div>
-                  {items.map((t) =>
-                    editingId === t.id ? (
-                      <div
-                        key={t.id}
-                        className="le-add le-edit"
-                        style={{ borderLeftColor: g.color }}
-                      >
-                        <input
-                          className="le-input"
-                          value={editDraft.title}
-                          maxLength={80}
-                          onChange={(e) =>
-                            setEditDraft((d) => ({ ...d, title: e.target.value }))
-                          }
-                          onKeyDown={(e) => e.key === "Enter" && saveEdit()}
-                          autoFocus
-                        />
-                        <div className="le-diff-row">
-                          {DIFFS.map((d) => (
-                            <button
-                              key={d.id}
-                              className={`le-diff ${editDraft.diff === d.id ? "on" : ""}`}
-                              onClick={() => setEditDraft((x) => ({ ...x, diff: d.id }))}
-                            >
-                              {d.label} <span className="le-diff-xp">+{d.xp}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <div className="le-group-row">
-                          {Object.values(GROUPS).map((gr) => (
-                            <button
-                              key={gr.id}
-                              className={`le-group-chip ${editDraft.group === gr.id ? "on" : ""}`}
-                              style={
-                                editDraft.group === gr.id
-                                  ? { background: gr.color, borderColor: gr.color }
-                                  : undefined
-                              }
-                              onClick={() => setEditDraft((x) => ({ ...x, group: gr.id }))}
-                            >
-                              {gr.glyph} {gr.name}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="le-diff-row">
-                          {REPEATS.map((r) => (
-                            <button
-                              key={r.label}
-                              className={`le-diff ${editDraft.repeat === r.id ? "on" : ""}`}
-                              onClick={() => setEditDraft((x) => ({ ...x, repeat: r.id }))}
-                            >
-                              {r.label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="le-key-row">
-                          <button
-                            className="le-btn moss"
-                            onClick={saveEdit}
-                            disabled={!editDraft.title.trim()}
-                          >
-                            Save
-                          </button>
-                          <button className="le-btn" onClick={cancelEdit}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        key={t.id}
-                        className={`le-card ${t.done ? "out" : ""}`}
-                        style={{ borderLeftColor: g.color }}
-                      >
-                        <button
-                          className={`le-check ${t.done ? "done" : ""}`}
-                          onClick={() => completeTask(t.id)}
-                          aria-label={`Complete ${t.title}`}
-                        >
-                          {t.done ? "✓" : ""}
-                        </button>
-                        <div className="le-card-body">
-                          <div className="le-card-title">{t.title}</div>
-                          <div className="le-card-meta">
-                            {diffOf(t.diff).label} ·{" "}
-                            <span className="le-amber">+{diffOf(t.diff).xp} XP</span>
-                            {t.repeat && <span className="le-repeat"> · ↻ {t.repeat}</span>}
-                          </div>
-                        </div>
-                        {!t.done && (
-                          <>
-                            <button
-                              className="le-x edit"
-                              onClick={() => startEdit(t)}
-                              aria-label={`Edit ${t.title}`}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              className={`le-x ${confirmDelete === t.id ? "armed" : ""}`}
-                              onClick={() => requestDelete(t.id)}
-                              aria-label={
-                                confirmDelete === t.id
-                                  ? `Confirm removing ${t.title}`
-                                  : `Remove ${t.title}`
-                              }
-                            >
-                              {confirmDelete === t.id ? "Sure?" : "×"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  )}
-                </div>
-              ))}
-            </section>
-          </>
+          <HudView
+            level={level}
+            velocity={velocity}
+            streak={streak}
+            freezes={freezes}
+            openTasksCount={openTasks.length}
+            mentor={mentor}
+            quota={quota}
+            quotaLoading={quotaLoading}
+            refreshQuota={refreshQuota}
+            adding={adding}
+            openAddPanel={openAddPanel}
+            addMode={addMode}
+            setAddMode={setAddMode}
+            newTitle={newTitle}
+            setNewTitle={setNewTitle}
+            newDiff={newDiff}
+            setNewDiff={setNewDiff}
+            newGroup={newGroup}
+            setNewGroup={setNewGroup}
+            newRepeat={newRepeat}
+            setNewRepeat={setNewRepeat}
+            addTask={addTask}
+            suggestions={suggestions}
+            suggLoading={suggLoading}
+            suggNote={suggNote}
+            shuffleSuggestions={shuffleSuggestions}
+            aiSuggestions={aiSuggestions}
+            addSuggestion={addSuggestion}
+            apiKey={apiKey}
+            boards={boards}
+            editingId={editingId}
+            editDraft={editDraft}
+            setEditDraft={setEditDraft}
+            saveEdit={saveEdit}
+            cancelEdit={cancelEdit}
+            completeTask={completeTask}
+            startEdit={startEdit}
+            confirmDelete={confirmDelete}
+            requestDelete={requestDelete}
+          />
         )}
 
-        {view === "analytics" && (
-          <>
-            <h2 className="le-h2" style={{ marginBottom: 12 }}>Last 7 days</h2>
-            <section className="le-panel">
-              <div className="le-chart">
-                {week.map((d, i) => (
-                  <div key={i} className="le-bar-col">
-                    <div className="le-bar-count">
-                      {d.count > 0 ? d.count : d.frozen ? "🧊" : ""}
-                    </div>
-                    <div
-                      className={`le-bar ${i === 6 ? "today" : ""}`}
-                      style={{ height: `${Math.max(4, (d.count / maxCount) * 110)}px` }}
-                      title={`${d.count} tasks · ${d.xp} XP`}
-                    />
-                    <div className="le-bar-label">{d.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="le-chart-foot">
-                {week.reduce((s, d) => s + d.count, 0)} completions ·{" "}
-                <span className="le-amber">{week.reduce((s, d) => s + d.xp, 0)} XP</span>{" "}
-                this week
-              </div>
-            </section>
-
-            <h2 className="le-h2" style={{ margin: "20px 0 12px" }}>Completion log</h2>
-            {log.length === 0 && (
-              <div className="le-empty">Nothing completed yet. The log fills itself.</div>
-            )}
-            {log.slice(0, 40).map((e) => (
-              <div key={e.id} className="le-log-row">
-                <div>
-                  <div className="le-card-title">{e.title}</div>
-                  <div className="le-card-meta">
-                    {new Date(e.completedAt).toLocaleDateString(undefined, {
-                      weekday: "short",
-                      day: "numeric",
-                      month: "short",
-                    })}{" "}
-                    ·{" "}
-                    {new Date(e.completedAt).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                </div>
-                <div className="le-amber le-mono">+{e.xp}</div>
-              </div>
-            ))}
-          </>
-        )}
+        {view === "analytics" && <AnalyticsView week={week} maxCount={maxCount} log={log} />}
 
         {view === "rewards" && flavor.RewardsView && (
           <flavor.RewardsView rewards={rewards} log={log} updateReward={updateReward} />
         )}
 
         {view === "settings" && (
-          <>
-            <div className="le-settings-section">
-              <h2 className="le-h2" style={{ marginBottom: 4 }}>Style</h2>
-              <p className="le-sub">Changes the look and the reward system on this device.</p>
-              {Object.values(FLAVORS).map((f) => (
-                <button
-                  key={f.id}
-                  className={`le-mentor ${f.id === flavorId ? "on" : ""}`}
-                  onClick={() => setFlavorId(f.id)}
-                >
-                  <span className="le-glyph">{f.glyph}</span>
-                  <span className="le-mentor-text">
-                    <span className="le-card-title">{f.name}</span>
-                    <span className="le-card-meta">{f.tagline}</span>
-                  </span>
-                  {f.id === flavorId && <span className="le-mentor-on">Active</span>}
-                </button>
-              ))}
-            </div>
-
-            <div className="le-settings-section">
-              <h2 className="le-h2" style={{ marginBottom: 4 }}>Mentor</h2>
-              <p className="le-sub">Sets the voice of your daily transmission.</p>
-              <button
-                className={`le-mentor ${mentorId === "none" ? "on" : ""}`}
-                onClick={() => setMentorId("none")}
-              >
-                <span className="le-glyph">🔇</span>
-                <span className="le-mentor-text">
-                  <span className="le-card-title">No mentor</span>
-                  <span className="le-card-meta">Silence. Just you and the deck.</span>
-                </span>
-                {mentorId === "none" && <span className="le-mentor-on">Active</span>}
-              </button>
-              {Object.values(MENTORS).map((m) => (
-                <button
-                  key={m.id}
-                  className={`le-mentor ${m.id === mentorId ? "on" : ""}`}
-                  onClick={() => setMentorId(m.id)}
-                >
-                  <span className="le-glyph">{m.glyph}</span>
-                  <span className="le-mentor-text">
-                    <span className="le-card-title">{m.name}</span>
-                    <span className="le-card-meta">{m.tagline}</span>
-                  </span>
-                  {m.id === mentorId && <span className="le-mentor-on">Active</span>}
-                </button>
-              ))}
-            </div>
-
-            <div className="le-settings-section">
-              <h2 className="le-h2" style={{ marginBottom: 4 }}>Daily reminder</h2>
-              <p className="le-sub">
-                A nudge if nothing is completed by the set time. Works while the app is
-                open — without a server, the phone can't be reached once the app is
-                fully closed.
-              </p>
-              <div className="le-add">
-                <div className="le-key-row">
-                  <button
-                    className={`le-btn ${reminder.enabled ? "moss" : ""}`}
-                    onClick={toggleReminder}
-                  >
-                    {reminder.enabled ? "Reminders on ✓" : "Enable reminders"}
-                  </button>
-                  <input
-                    className="le-input"
-                    type="time"
-                    style={{ width: "auto" }}
-                    value={reminder.time}
-                    onChange={(e) =>
-                      setReminder((r) => ({ ...r, time: e.target.value || "18:00" }))
-                    }
-                  />
-                </div>
-                {notifDenied && (
-                  <p className="le-fineprint">
-                    Notifications are blocked for this site — allow them in your
-                    browser/site settings, then try again.
-                  </p>
-                )}
-                {pushConfigured() ? (
-                  <>
-                    <button
-                      className={`le-btn ${pushEnabled ? "moss" : ""}`}
-                      onClick={togglePush}
-                    >
-                      {pushEnabled
-                        ? "Background reminders on ✓"
-                        : "Enable background reminders"}
-                    </button>
-                    {pushNote && <p className="le-fineprint">{pushNote}</p>}
-                    <p className="le-fineprint">
-                      Background reminders arrive even with the app closed, at the time
-                      set above. On iPhone the app must be installed to the Home
-                      Screen. Completing any task cancels that day's reminder.
-                    </p>
-                  </>
-                ) : (
-                  <p className="le-fineprint">
-                    Reminders are in-app only on this build. True background reminders
-                    need the companion push server — see server/README.md in the repo.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="le-settings-section">
-              <h2 className="le-h2" style={{ marginBottom: 4 }}>Starter tasks</h2>
-              <p className="le-sub">
-                Adds the default task set (grouped: health, mindfulness, chores,
-                learning, connection) — skips any already in your deck.
-              </p>
-              <div className="le-key-row">
-                <button className="le-btn" onClick={addDefaults}>
-                  Add default tasks
-                </button>
-                {defaultsNote && <p className="le-fineprint" style={{ alignSelf: "center" }}>{defaultsNote}</p>}
-              </div>
-            </div>
-
-            <div className="le-settings-section">
-              <h2 className="le-h2" style={{ marginBottom: 4 }}>Your data</h2>
-              <p className="le-sub">
-                Everything lives only on this device. Export a backup before switching
-                phones or clearing the browser — it restores tasks, history, XP,
-                streak freezes and the whole collection.
-              </p>
-              <div className="le-add">
-                <div className="le-key-row">
-                  <button className="le-btn" onClick={exportData}>
-                    Export backup
-                  </button>
-                  <button className="le-btn" onClick={() => importFileRef.current?.click()}>
-                    Import backup…
-                  </button>
-                </div>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  accept=".json,application/json"
-                  style={{ display: "none" }}
-                  onChange={handleImportFile}
-                />
-                {pendingImport && (
-                  <>
-                    <p className="le-fineprint">
-                      Backup{pendingImport.exportedAt
-                        ? ` from ${new Date(pendingImport.exportedAt).toLocaleString()}`
-                        : ""}{" "}
-                      with {pendingImport.state.tasks.length} tasks,{" "}
-                      {pendingImport.state.log.length} completions and{" "}
-                      {(pendingImport.state.rewards || []).length} rewards. Importing
-                      replaces everything currently on this device.
-                    </p>
-                    <div className="le-key-row">
-                      <button className="le-btn danger" onClick={applyImport}>
-                        Replace &amp; restore
-                      </button>
-                      <button className="le-btn" onClick={() => setPendingImport(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                )}
-                {importNote && <p className="le-fineprint">{importNote}</p>}
-                <p className="le-fineprint">
-                  The backup file includes your API key if one is saved — keep it
-                  private.
-                </p>
-              </div>
-            </div>
-
-            <h2 className="le-h2" style={{ margin: "22px 0 4px" }}>AI connection</h2>
-            <p className="le-sub">
-              {apiKey
-                ? "API key configured — transmissions and AI task ideas are live."
-                : "No API key set — mentors use their built-in offline lines and task suggestions come from the offline list. Add an Anthropic API key for live AI generation."}
-            </p>
-            <div className="le-add">
-              <input
-                className="le-input"
-                type="password"
-                placeholder={apiKey ? "Replace saved key…" : "sk-ant-…"}
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                autoComplete="off"
-              />
-              <div className="le-key-row">
-                <button className="le-btn" onClick={saveKey} disabled={!keyDraft.trim()}>
-                  {keySaved ? "Saved ✓" : "Save key"}
-                </button>
-                {apiKey && (
-                  <button
-                    className="le-btn danger"
-                    onClick={() => {
-                      setApiKey("");
-                      setKeyDraft("");
-                    }}
-                  >
-                    Remove key
-                  </button>
-                )}
-              </div>
-              <p className="le-fineprint">
-                Stored only in this device's IndexedDB and sent only to api.anthropic.com.
-                Single-user use only — never embed a key in a shared deployment.
-              </p>
-            </div>
-          </>
+          <SettingsView
+            flavorId={flavorId}
+            setFlavorId={setFlavorId}
+            mentorId={mentorId}
+            setMentorId={setMentorId}
+            reminder={reminder}
+            setReminder={setReminder}
+            toggleReminder={toggleReminder}
+            notifDenied={notifDenied}
+            pushEnabled={pushEnabled}
+            togglePush={togglePush}
+            pushNote={pushNote}
+            defaultsNote={defaultsNote}
+            addDefaults={addDefaults}
+            pendingImport={pendingImport}
+            setPendingImport={setPendingImport}
+            exportData={exportData}
+            handleImportFile={handleImportFile}
+            applyImport={applyImport}
+            importNote={importNote}
+            importFileRef={importFileRef}
+            apiKey={apiKey}
+            keyDraft={keyDraft}
+            setKeyDraft={setKeyDraft}
+            saveKey={saveKey}
+            keySaved={keySaved}
+            setApiKey={setApiKey}
+          />
         )}
       </main>
+
+      {undo && (
+        <div className="le-undo-toast">
+          <span>
+            +{undo.gain} XP · {undo.title}
+          </span>
+          <button className="le-btn-ghost undo" onClick={undoLast}>
+            Undo
+          </button>
+        </div>
+      )}
 
       <nav
         className="le-nav"
@@ -1198,19 +795,6 @@ export default function App() {
           </button>
         ))}
       </nav>
-    </div>
-  );
-}
-
-function Metric({ label, value, sub, hot, title }) {
-  return (
-    <div className="le-metric" title={title}>
-      <div className="le-metric-label">{label}</div>
-      <div className={`le-metric-value ${hot ? "hot" : ""}`}>
-        {value}
-        {hot && <span className="le-flame">🔥</span>}
-      </div>
-      <div className="le-metric-sub">{sub}</div>
     </div>
   );
 }

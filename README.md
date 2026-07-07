@@ -1,6 +1,6 @@
 # LifeEngine
 
-Gamified motivation PWA — HUD-style metrics (velocity, streak, XP), a colour-coded grouped task deck, weekly analytics, an AI "Mentor" system with selectable personas, and switchable "flavors" that re-skin the app and change its reward system per device.
+Gamified motivation PWA — HUD-style metrics (velocity, streak, XP, levels), a colour-coded grouped task deck, weekly analytics, an AI "Mentor" system with selectable personas, and switchable "flavors" that re-skin the app and change its reward system per device.
 
 ## Stack
 
@@ -17,6 +17,8 @@ npm run preview    # serve the production build locally
 ```
 
 Tests also run in CI before every deploy.
+
+`npm audit` currently reports findings in the vite/vitest/esbuild dev toolchain (not shipped in `dist/`, and only reachable via a dev server exposed to an untrusted network or `vitest --ui`, neither of which this project does). The real fixes require a major-version jump (vite 8 / vitest 4) which was tried and reverted — vitest 4 nests a different esbuild version than vite 5 expects, corrupting the lockfile's optional-dependency metadata and breaking `npm ci` in CI. Don't `npm audit fix --force` without re-testing `npm ci` on a real Linux host first.
 
 A prebuilt `dist/` is included in this zip — you can deploy it as-is.
 
@@ -63,11 +65,15 @@ The **+ Task** panel has two modes:
 - **Custom** — title, difficulty, group, and a repeat cadence: Once, Daily, Weekly, or Monthly. Recurring tasks award XP each completion, disappear for the rest of the current day/ISO week/calendar month, then return automatically. Deleting one (×) removes it permanently.
 - **Suggested** — tap-to-add ideas. **Shuffle** draws from the offline list in `src/suggestions.js` (edit `OFFLINE_SUGGESTIONS` to make it yours); **✨ AI ideas** asks Claude for suggestions tailored to your current deck, streak, and XP (requires the API key below), falling back to the offline list if the call fails.
 
-## Completion celebration & reminders
+## Completion celebration, undo & reminders
 
-Completing a task fires a confetti burst (dependency-free, respects `prefers-reduced-motion`) and haptics via `navigator.vibrate` (Android/Chrome; iOS ignores it), plus the active flavor's reward pop-up.
+Completing a task fires a confetti burst (dependency-free, respects `prefers-reduced-motion`) and haptics via `navigator.vibrate` (Android/Chrome; iOS ignores it), plus the active flavor's reward pop-up. A toast at the bottom offers **Undo** for 5 seconds — it reverts the XP, log entry, reward, freeze-token state, and restores the task exactly as it was (even re-inserting it if a one-off task had already been removed, or a recurring task had already parked for its next cycle).
 
 **Settings → Daily reminder** shows a notification if nothing has been completed by a set time. Out of the box this is local-only (fires while the app is open). For **background reminders** — arriving with the app fully closed — deploy the tiny self-hosted companion service in [`server/`](server/README.md) and set its URL in `src/push-config.js`; an "Enable background reminders" button then appears. The server holds only push endpoints, reminder times and timezones — never task data — and completing any task cancels that day's reminder. The app also sets the icon badge to the open-task count where the Badging API exists (installed Chromium PWAs).
+
+## XP levels
+
+Total XP maps to a level and title (Newcomer → Habit Starter → … → Living Legend) on a quadratic curve — each level needs progressively more XP than the last, so early levels arrive quickly and the game stays a long-term goal without ever hard-capping. A progress bar in the HUD shows XP into the current level, and crossing a threshold pops a level-up banner with confetti. Pure logic lives in `levelInfo()` in `src/logic.js`, covered by unit tests.
 
 ## Streak freezes
 
@@ -115,14 +121,25 @@ No other files change — the picker, quota generation, and storage pick it up a
 
 ```
 src/
-  App.jsx       UI + state (HUD, boards, analytics, rewards, settings)
-  mentors.js    persona registry + difficulty/XP table
-  groups.js     task group registry + default task set
-  flavors/      flavor registry (palette + reward system per flavor)
-  celebrate.js  confetti + haptics
-  suggestions.js offline suggestion list + AI suggestion fetcher
-  ai.js         quota generation (API call or fallback)
-  storage.js    IndexedDB key-value layer (idb)
-  index.css     design tokens (CSS variables) & styles
-  main.jsx      entry
+  App.jsx           state + wiring: load/save, task ops, completion/undo,
+                    levels, freezes, push, renders the views below
+  views/
+    HudView.jsx       level bar, metrics, mentor quota, + Task panel, boards
+    AnalyticsView.jsx weekly chart + completion log
+    SettingsView.jsx  style/mentor/reminders/starter tasks/backups/API key
+                    (the Rewards tab is the active flavor's own RewardsView)
+  logic.js          pure date/streak/freeze/level logic — unit tested
+  logic.test.js     vitest suite for logic.js (runs in CI before deploy)
+  mentors.js        persona registry + difficulty/XP table
+  groups.js         task group registry + default task set
+  flavors/          flavor registry (palette + reward system per flavor)
+  celebrate.js      confetti + haptics
+  suggestions.js    offline suggestion list + AI suggestion fetcher
+  ai.js             quota generation (API call or fallback)
+  push.js / push-config.js   Web Push client (dormant until configured)
+  sw.js             custom service worker (precache + push handlers)
+  storage.js        IndexedDB key-value layer (idb)
+  index.css         design tokens (CSS variables) & styles
+  main.jsx          entry
+server/             companion push server — see server/README.md
 ```

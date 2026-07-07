@@ -15,7 +15,8 @@ Expired subscriptions clean themselves up.
 - Node.js 18+ on the server (`node --version`)
 - An HTTPS hostname for it — a **subdomain of a domain you already own is
   enough** (e.g. `push.yourdomain.ie`); browsers require HTTPS for push
-- lighttpd (or any reverse proxy) in front of it
+- nginx (or any reverse proxy) in front of it — this is what LifeEngine's own
+  instance runs; adjust the vhost example below if you use something else
 
 ## Setup
 
@@ -34,26 +35,48 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now lifeengine-push
 ```
 
-## DNS + HTTPS + lighttpd
+## DNS + HTTPS + nginx
 
 1. Add a DNS A record for the subdomain (e.g. `push`) pointing at the server.
-2. Get a certificate: `sudo certbot certonly --webroot` (or your usual method)
-   for that subdomain, and build the combined PEM lighttpd wants:
-   `cat privkey.pem cert.pem > /etc/lighttpd/certs/push.pem`
-3. Enable `mod_proxy` and `mod_openssl`, then add a vhost:
+2. Add an nginx vhost proxying to the service:
 
 ```
-$SERVER["socket"] == ":443" {
-}
-$HTTP["host"] == "push.yourdomain.ie" {
-    ssl.engine  = "enable"
-    ssl.pemfile = "/etc/lighttpd/certs/push.pem"
-    proxy.server = ( "" => ( ( "host" => "127.0.0.1", "port" => 8787 ) ) )
+server {
+    listen 80;
+    listen [::]:80;
+    server_name push.yourdomain.ie;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
-4. `sudo systemctl reload lighttpd`, then check:
-   `curl https://push.yourdomain.ie/health` → `{"ok":true,"subscriptions":0}`
+3. Symlink it in and reload:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/lifeengine-push /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+4. Get a certificate and let certbot wire up HTTPS automatically:
+
+```bash
+sudo certbot --nginx -d push.yourdomain.ie
+```
+
+   (this rewrites the vhost to add the `listen 443 ssl` block and an
+   HTTP→HTTPS redirect)
+
+5. Check: `curl https://push.yourdomain.ie/health` → `{"ok":true,"subscriptions":0}`
+
+If you're fronting with lighttpd instead, the equivalent is `proxy.server =
+(("" => (("host" => "127.0.0.1", "port" => 8787))))` inside a
+`$HTTP["host"] == "push.yourdomain.ie" { ... }` block with `mod_proxy` enabled.
 
 ## Connect the app
 

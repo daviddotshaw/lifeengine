@@ -98,6 +98,55 @@ export function computeVelocity(log) {
   return { today, avg: Math.round((week / 7) * 10) / 10 };
 }
 
+/* ---------------- levels ---------------- */
+/* Quadratic curve: level n needs 50*(n-1)^2 total XP. With XP awards of
+   10/25/50/100 per task, level 2 (50 XP) is a handful of tasks, level 5
+   (800 XP) is weeks of consistent use, level 10 (4050 XP) is a long-term
+   goal — titles run out at LEVEL_TITLES.length and just show "Lv. N". */
+export const LEVEL_TITLES = [
+  "Newcomer",
+  "Habit Starter",
+  "Steady Climber",
+  "Momentum Builder",
+  "Consistency Machine",
+  "Focused",
+  "Relentless",
+  "Habit Machine",
+  "Unstoppable",
+  "Living Legend",
+];
+
+export function xpForLevel(level) {
+  return level <= 1 ? 0 : 50 * (level - 1) * (level - 1);
+}
+
+export function levelForXp(xp) {
+  // +1e-9 guards against float rounding landing just under an exact boundary
+  return Math.floor(Math.sqrt(Math.max(0, xp) / 50) + 1e-9) + 1;
+}
+
+export function levelTitle(level) {
+  return LEVEL_TITLES[Math.min(level, LEVEL_TITLES.length) - 1];
+}
+
+/** Everything a level display needs, derived from total XP. */
+export function levelInfo(xp) {
+  const level = levelForXp(xp);
+  const floor = xpForLevel(level);
+  const nextLevelXp = xpForLevel(level + 1);
+  const span = nextLevelXp - floor;
+  const into = xp - floor;
+  return {
+    level,
+    title: levelTitle(level),
+    floor,
+    nextLevelXp,
+    into,
+    span,
+    pct: span > 0 ? Math.min(1, into / span) : 1,
+  };
+}
+
 export function weekSeries(log, frozenDays = []) {
   const out = [];
   for (let n = 6; n >= 0; n--) {

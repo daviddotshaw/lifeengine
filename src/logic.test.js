@@ -10,6 +10,10 @@ import {
   computeVelocity,
   weekSeries,
   planFreezeSpend,
+  xpForLevel,
+  levelForXp,
+  levelInfo,
+  LEVEL_TITLES,
 } from "./logic.js";
 import { collector } from "./flavors/collector.jsx";
 
@@ -117,6 +121,52 @@ describe("metrics", () => {
     expect(s[5].count).toBe(1);
     expect(s[4].frozen).toBe(true);
     expect(s[0].count).toBe(0);
+  });
+});
+
+describe("levels", () => {
+  it("starts at level 1 with zero XP", () => {
+    expect(levelForXp(0)).toBe(1);
+    expect(xpForLevel(1)).toBe(0);
+  });
+
+  it("levels up exactly at each threshold, not before", () => {
+    expect(levelForXp(49)).toBe(1);
+    expect(levelForXp(50)).toBe(2);
+    expect(levelForXp(199)).toBe(2);
+    expect(levelForXp(200)).toBe(3);
+    expect(levelForXp(449)).toBe(3);
+    expect(levelForXp(450)).toBe(4);
+  });
+
+  it("xpForLevel and levelForXp round-trip at exact boundaries", () => {
+    for (let lvl = 1; lvl <= 30; lvl++) {
+      expect(levelForXp(xpForLevel(lvl))).toBe(lvl);
+    }
+  });
+
+  it("is monotonic non-decreasing as xp grows", () => {
+    let prev = levelForXp(0);
+    for (let xp = 0; xp <= 5000; xp += 37) {
+      const lvl = levelForXp(xp);
+      expect(lvl).toBeGreaterThanOrEqual(prev);
+      prev = lvl;
+    }
+  });
+
+  it("levelInfo reports a sane progress fraction that never exceeds 1", () => {
+    const info = levelInfo(120);
+    expect(info.level).toBe(2);
+    expect(info.into).toBe(120 - xpForLevel(2));
+    expect(info.span).toBe(xpForLevel(3) - xpForLevel(2));
+    expect(info.pct).toBeGreaterThanOrEqual(0);
+    expect(info.pct).toBeLessThanOrEqual(1);
+  });
+
+  it("falls back to the last title once past the named ladder", () => {
+    const highLevel = LEVEL_TITLES.length + 5;
+    const info = levelInfo(xpForLevel(highLevel));
+    expect(info.title).toBe(LEVEL_TITLES[LEVEL_TITLES.length - 1]);
   });
 });
 
